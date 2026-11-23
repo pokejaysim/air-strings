@@ -8,17 +8,38 @@ export class StringSynth {
     this.mode = 'none';
     this.volume = 0.8;
     this.log = []; // recent plucks, handy for debugging
+    this.silentEl = null;
+    this.dropped = 0; // plucks lost while audio was paused
+  }
+
+  /** True when audio was started but the browser has paused it (iOS does this a lot). */
+  get needsUnlock() {
+    return !!this.ctx && this.ctx.state !== 'running' && this.ctx.state !== 'closed';
+  }
+
+  /**
+   * Try to (re)start audio. Only works reliably inside a real user gesture
+   * (tap, click, key) on iOS; elsewhere it's a harmless no-op.
+   */
+  unlock() {
+    if (!this.ctx) return;
+    if (this.silentEl && this.silentEl.paused && !document.hidden) this.silentEl.play().catch(() => {});
+    if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {});
   }
 
   /** Must be called from a user gesture (autoplay rules). */
   async start() {
-    if (this.ctx) { await this.ctx.resume(); return this.mode; }
+    if (this.ctx) { this.unlock(); return this.mode; }
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) throw new Error('Web Audio is not supported in this browser.');
+    // iOS: ask for "playback" audio so the ring/silent switch doesn't mute us.
+    const hasSessionApi = preferPlaybackSession();
     const ctx = new Ctx({ latencyHint: 'interactive' });
     this.ctx = ctx;
-    // Resume synchronously inside the gesture, before any await.
-    const resumed = ctx.resume();
+    // Everything below up to the first await runs inside the user's tap.
+    if (!hasSessionApi && isIOS()) this.silentEl = startSilentLoop();
+    const resumed = ctx.resume().catch(() => {});
+    this.installUnlockListeners();
 
     this.master = ctx.createGain();
     this.master.gain.value = this.volume;
@@ -56,8 +77,23 @@ export class StringSynth {
       console.warn('AudioWorklet unavailable, using buffer synthesis:', err);
       this.mode = 'buffer';
     }
-    await resumed;
+    // Don't block on resume(): on iOS it can stay pending for as long as audio
+    // is interrupted (e.g. while the camera permission prompt is showing).
+    await Promise.race([resumed, new Promise((r) => setTimeout(r, 300))]);
     return this.mode;
+  }
+
+  installUnlockListeners() {
+    const unlock = () => this.unlock();
+    // iOS counts touchend/click (not touchstart) as a user gesture.
+    for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) {
+      window.addEventListener(type, unlock, { capture: true, passive: true });
+    }
+    window.addEventListener('pageshow', unlock);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.silentEl?.pause();
+      else this.unlock();
+    });
   }
 
   setVolume(v) {
@@ -70,7 +106,14 @@ export class StringSynth {
    *   pan (-1..1), stringId
    */
   pluck({ freq, amp = 0.7, position = 0.5, pan = 0, stringId = null }) {
-    if (!this.ctx || this.ctx.state !== 'running') return false;
+    if (!this.ctx) return false;
+    if (this.ctx.state !== 'running') {
+      // Paused by the browser. Try to resume (works if this came from a tap);
+      // otherwise the UI shows a "tap to turn sound on" banner.
+      this.unlock();
+      this.dropped++;
+      return false;
+    }
     const a = Math.max(0.05, Math.min(1, amp));
     const msg = {
       type: 'pluck', freq, stringId, pan,
@@ -146,6 +189,47 @@ export function renderKarplusStrong(sr, { freq, amp, position, brightness }, sec
       return b;
     },
   };
+}
+
+function isIOS() {
+  const ua = navigator.userAgent || '';
+  return /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
+/** Audio Session API (Safari 16.4+): treat us like a music app, not UI sounds. */
+function preferPlaybackSession() {
+  try {
+    if (navigator.audioSession) {
+      navigator.audioSession.type = 'playback';
+      return true;
+    }
+  } catch { /* not supported */ }
+  return false;
+}
+
+/**
+ * Older iOS: playing a (silent) HTML media element moves the page into the
+ * "playback" audio category, so Web Audio is heard even on silent mode.
+ * Must be started inside a user gesture.
+ */
+function startSilentLoop() {
+  const rate = 8000, n = rate / 4; // 0.25 s of 16-bit mono silence
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 2, true);
+  const el = document.createElement('audio');
+  el.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  el.loop = true;
+  el.preload = 'auto';
+  el.setAttribute('playsinline', '');
+  el.setAttribute('x-webkit-airplay', 'deny');
+  el.disableRemotePlayback = true;
+  el.play().catch(() => {});
+  return el;
 }
 
 function makeImpulse(ctx, seconds) {

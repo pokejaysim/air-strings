@@ -92,6 +92,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
   color: rgba(238,241,248,0.55); font-size: 16px; text-align: center; pointer-events: none; padding: 0 16px;
 }
 
+.sound-banner {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 25;
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 20px; border-radius: 14px; border: 1px solid rgba(255,179,92,0.6);
+  background: rgba(40, 26, 10, 0.92); color: #ffe2bd; font-size: 15px; font-weight: 600;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.45); width: max-content; max-width: calc(100vw - 32px);
+  text-align: left; animation: nudge 1.6s ease-in-out infinite;
+}
+.sound-banner .spk {
+  width: 18px; height: 18px; flex: none; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3z'/%3E%3Cpath d='M16 9l5 6M21 9l-5 6' stroke='black' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3z'/%3E%3Cpath d='M16 9l5 6M21 9l-5 6' stroke='black' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+@keyframes nudge { 50% { box-shadow: 0 10px 40px rgba(0,0,0,0.45), 0 0 0 6px rgba(255,179,92,0.15); } }
+
 /* Overlays */
 .overlay {
   position: fixed; inset: 0; display: grid; place-items: center; z-index: 30; padding: 16px;

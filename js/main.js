@@ -76,6 +76,7 @@ async function start(forceMouse) {
     console.error(err);
     ui.toast('Audio could not start: ' + err.message, 4000);
   }
+  app.started = true;
   ui.showApp();
   ui.setMouseMode(app.mouseMode);
   ui.maybeShowHint();
@@ -87,6 +88,8 @@ async function startCamera() {
   ui.setStatus('Asking for camera…', 'warn');
   try {
     await openCamera(video);
+    // The camera prompt can pause audio on iOS; try to bring it back.
+    synth.unlock();
     app.cameraOn = true;
     app.mouseMode = false;
     ui.setMouseMode(false);
@@ -115,6 +118,8 @@ async function startCamera() {
   }
   ui.setStatus('Show your hand to the camera', 'live');
 }
+
+document.getElementById('soundBanner').addEventListener('click', () => synth.unlock());
 
 const startBtn = document.getElementById('startBtn');
 startBtn.addEventListener('click', () => { startBtn.disabled = true; start(false); });
@@ -162,6 +167,7 @@ function frame(now) {
   interaction.update(pointers, W, H, now);
   bank.update(dt);
   ui.setEmpty(emptyText());
+  ui.setSoundPaused(app.started && synth.needsUnlock);
   render(pointers);
   requestAnimationFrame(frame);
 }

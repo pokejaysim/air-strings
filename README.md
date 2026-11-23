@@ -74,8 +74,16 @@ string rather than a beep.
 
 ## Browser support
 
-Recent Chrome, Edge and Safari (desktop). Firefox works but hand tracking may
-be slower. Audio starts after you tap **Tap to start**, as browsers require.
+Recent Chrome, Edge and Safari (desktop), plus Safari on iPhone and iPad.
+Firefox works but hand tracking may be slower. Audio starts after you tap
+**Tap to start**, as browsers require.
+
+**iPhone / iPad:** Safari pauses web audio after the camera permission prompt,
+app switching, locking the screen, calls or Siri, and only lets it restart
+after a real tap (a hand pinch doesn't count). When that happens, a
+"Sound paused" banner appears; tap anywhere to bring sound back. The app asks
+iOS for playback audio, so it should play even with the ring/silent switch
+on silent.
 
 ## License
 

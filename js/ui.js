@@ -62,6 +62,12 @@ export class UI {
     $('status').className = 'status' + (kind ? ' ' + kind : '');
   }
 
+  setSoundPaused(paused) {
+    if (this.soundPaused === paused) return;
+    this.soundPaused = paused;
+    $('soundBanner').hidden = !paused;
+  }
+
   setEmpty(text) {
     $('empty').hidden = !text;
     $('empty').textContent = text || '';

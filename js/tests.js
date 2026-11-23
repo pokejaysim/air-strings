@@ -3,7 +3,7 @@ import {
   noteName, freqToMidi, midiToFreq, lengthFraction, pitchForLength, centsOff, SCALES, SCALE_ROOT,
 } from './pitch.js';
 import { StringBank } from './strings.js';
-import { Interaction } from './interaction.js';
+import { Interaction, TUNING } from './interaction.js';
 import { HandGestures, videoToScreen, PINCH_ON, PINCH_OFF } from './gestures.js';
 
 const results = [];
@@ -104,6 +104,7 @@ function rig() {
   let t = 1000;
   const hand = (x, y, pinching, extra = {}, source = 'hand') => ({
     id: source + ':1', source, x, y, tipX: x, tipY: y, thumbX: x, thumbY: y,
+    ...(source === 'hand' ? { palmX: x, palmY: y + 120 } : {}),
     pinching, pinchStarted: false, pinchEnded: false, lost: false, ...extra,
   });
   // Feed a gesture: list of [x, y, pinching]; derives started/ended flags.
@@ -199,6 +200,69 @@ test('Mouse: a normal drag across a string draws without strumming', () => {
   assert(r.bank.strings.length === 2, `strings: ${r.bank.strings.length}`);
 });
 
+// ---- Strum vs draw (the "my strums make lines" problem) ----
+test('Strum with fingers touching mid-swipe: strums, draws nothing', () => {
+  const r = rig();
+  for (const y of [300, 400, 500]) r.bank.add(300, y, 900, y, W, H);
+  // Open hand swiping down fast; fingers close for a few frames in the middle.
+  const pts = r.line(600, 150, 600, 650, 10, false);
+  for (const i of [4, 5, 6, 7]) pts[i][2] = true;
+  r.run(pts);
+  assert(r.plucks.length === 3, `strums: ${r.plucks.length}`);
+  assert(r.bank.strings.length === 3, `stray strings drawn: ${r.bank.strings.length - 3}`);
+});
+test('Fingers closing mid-swipe in empty space draw nothing', () => {
+  const r = rig();
+  const pts = r.line(100, 600, 1100, 600, 10, false); // fast sideways swipe, no strings around
+  for (const i of [3, 4, 5, 6, 7, 8]) pts[i][2] = true;
+  r.run(pts);
+  assert(r.bank.strings.length === 0, `stray strings: ${r.bank.strings.length}`);
+});
+test('Fingers closing mid-swipe near a string do not grab it', () => {
+  const r = rig();
+  r.bank.add(300, 400, 900, 400, W, H);
+  const pts = r.line(600, 250, 600, 560, 6, false);
+  pts[3][2] = true; pts[4][2] = true; // pinch right as the hand passes the string
+  r.run(pts);
+  assert(r.plucks.length === 1, `expected 1 strum, got ${r.plucks.length}`);
+  assert(!r.bank.strings[0].pull, 'string should not be held');
+});
+test('A quick pinch-flick from rest (no hold) does not draw', () => {
+  const r = rig();
+  r.run([[200, 700, false], [200, 700, false], ...r.line(200, 700, 900, 700, 4, true), [900, 700, false]]);
+  assert(r.bank.strings.length === 0, `strings: ${r.bank.strings.length}`);
+});
+test('A deliberate pinch-hold-drag still draws', () => {
+  const r = rig();
+  const hold = Array.from({ length: 6 }, () => [200, 700, true]); // ~200 ms hold
+  r.run([[200, 700, false], ...hold, ...r.line(200, 700, 800, 700, 12, true), [800, 700, false]]);
+  assert(r.bank.strings.length === 1, `strings: ${r.bank.strings.length}`);
+  assert(near(r.bank.strings[0].lengthFrac, 600 / 1500, 1e-3), 'string starts where the pinch began');
+});
+test('A pinch-drag that whips across strings strums them instead of drawing', () => {
+  const r = rig();
+  for (const y of [400, 500]) r.bank.add(300, y, 900, y, W, H);
+  const hold = Array.from({ length: 6 }, () => [600, 250, true]);
+  r.run([[600, 250, false], ...hold, ...r.line(600, 250, 600, 650, 3, true), [600, 650, false]]);
+  assert(r.plucks.length === 2, `strums: ${r.plucks.length}`);
+  assert(r.bank.strings.length === 2, `stray strings: ${r.bank.strings.length - 2}`);
+});
+test('Closing a pinch moves the fingertip, but that alone is not a swipe', () => {
+  const r = rig();
+  // Palm still; index tip snaps 60 px toward the thumb as the pinch closes.
+  const t0 = 1000;
+  const mk = (tipY, pinching, started) => ({ id: 'hand:1', source: 'hand', x: 300, y: 600, tipX: 300, tipY: tipY,
+    palmX: 300, palmY: 720, pinching, pinchStarted: started, pinchEnded: false, lost: false });
+  r.ix.update([mk(540, false, false)], W, H, t0);
+  r.ix.update([mk(540, false, false)], W, H, t0 + 33);
+  r.ix.update([mk(600, true, true)], W, H, t0 + 66);
+  assert(r.ix.pointerStatus('hand:1').action === 'pendingDraw', r.ix.pointerStatus('hand:1').action);
+});
+test('Tuning: hands need a held pinch, mouse clicks are immediate', () => {
+  assert(TUNING.hand.armMs > 0 && TUNING.mouse.armMs === 0, 'arm times');
+  assert(TUNING.hand.pinchStartMaxSpeed < TUNING.hand.strumSpeed * 2, 'fast pinch starts are ignored');
+});
+
 test('Longer strings play lower than shorter ones', () => {
   const r = rig();
   const a = r.bank.add(100, 100, 1000, 100, W, H), b = r.bank.add(100, 300, 400, 300, W, H);
@@ -225,8 +289,10 @@ test('Pinch detection uses hysteresis (no flicker near the threshold)', () => {
   const mid = (PINCH_ON + PINCH_OFF) / 2;
   assert(!step(0.8).pinching, 'open hand should not pinch');
   assert(!step(mid).pinching, 'between thresholds from open: still not pinching');
+  const blip = step(PINCH_ON * 0.6);
+  assert(!blip.pinching, 'a single closed frame (motion blur) should not pinch');
   const p = step(PINCH_ON * 0.6);
-  assert(p.pinching && p.pinchStarted, 'closing should start a pinch');
+  assert(p.pinching && p.pinchStarted, 'two closed frames in a row should start a pinch');
   assert(step(mid).pinching, 'between thresholds while pinched: stays pinched');
   const r = step(PINCH_OFF * 1.4);
   assert(!r.pinching && r.pinchEnded, 'opening past PINCH_OFF should release');
@@ -241,6 +307,7 @@ test('Hand that leaves the frame emits a final lost pointer', () => {
   const g = new HandGestures();
   const video = { videoWidth: 1280, videoHeight: 720 };
   g.update(fakeHand(0.01), video, 1280, 720, 0);
+  g.update(fakeHand(0.01), video, 1280, 720, 33);
   const out = g.update([], video, 1280, 720, 500);
   assert(out.length === 1 && out[0].lost && out[0].pinchEnded, JSON.stringify(out[0]));
   assert(g.update([], video, 1280, 720, 600).length === 0, 'hand should be forgotten');

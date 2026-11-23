@@ -15,13 +15,19 @@ There are no modes to switch. What you do decides what happens:
 
 | | With your hand | With a mouse / touch |
 |---|---|---|
-| **Draw a string** | Pinch thumb + index in empty space, drag, let go | Click-drag in empty space, release |
+| **Draw a string** | Pinch thumb + index in empty space, hold until the ring fills (a split second), drag, let go | Click-drag in empty space, release |
 | **Pluck** | Pinch a string, pull it sideways, let go. Pull further = louder | Drag a string sideways, release |
 | **Strum** | Swipe your index fingertip quickly across strings (no pinch). Faster = louder | Flick fast across strings, starting from empty space |
 | **Press a toolbar button** | Pinch over it | Click it |
 
 A pinch within reach of a string grabs it (the string lights up when you're
-close enough); anywhere else, it starts a new string. A short coaching line at
+close enough); anywhere else, it starts a new string.
+
+Strums never draw lines: fingers that touch mid-swipe are ignored, drawing
+needs a short held pinch first (a ring fills to show it), lines made in a
+quick flick are discarded, and a pinch-drag that whips across strings strums
+them instead of drawing. The thresholds live in `TUNING` in
+`js/interaction.js`. A short coaching line at
 the bottom walks first-time players through draw, pluck, then strum.
 
 Keyboard: **Z** undo · **C** clear · **H** help.

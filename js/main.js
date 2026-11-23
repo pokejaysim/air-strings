@@ -39,6 +39,9 @@ const interaction = new Interaction({
       if (!app.plucked) app.strumTipUntil = performance.now() + 6000;
       app.plucked = true;
       if (ev.type === 'strum') app.strummed = true;
+    } else if (ev.type === 'tooQuick') {
+      // Only explain while they're still learning; otherwise it's likely a strum.
+      if (bank.strings.length === 0 && !app.mouseMode) ui.toast('Hold the pinch for a moment, then drag, to draw.', 2600);
     } else if (ev.type === 'tooShort') ui.toast('Too short. Drag a longer string.');
     else if (ev.type === 'tooMany') ui.toast('That’s plenty of strings! Undo or clear some.');
   },
@@ -174,7 +177,7 @@ function coach(now) {
   const hand = !app.mouseMode;
   if (bank.strings.length === 0) {
     return { step: 1, text: hand
-      ? 'Pinch thumb and index in empty space, drag, and let go to draw a string.'
+      ? 'Pinch in empty space and hold until the ring fills, then drag and let go to draw a string.'
       : 'Drag in empty space to draw a string.' };
   }
   if (!app.plucked) {
@@ -184,7 +187,7 @@ function coach(now) {
   }
   if (!app.strummed && now < app.strumTipUntil) {
     return { step: 3, text: hand
-      ? 'Swipe your fingertip fast across strings to strum. Draw more for more notes.'
+      ? 'Swipe an open hand fast across strings to strum (no pinch). Draw more for more notes.'
       : 'Flick fast across strings to strum. Draw more for more notes.' };
   }
   return null;
@@ -252,6 +255,27 @@ function drawPointer(p) {
   ctx.shadowColor = col; ctx.shadowBlur = on ? 14 : 6;
   ctx.stroke();
   if (on) { ctx.fillStyle = 'rgba(91,227,161,0.25)'; ctx.fill(); }
+  ctx.shadowBlur = 0;
+  if (on && p.source === 'hand') {
+    // Draw feedback: a ring fills while a pinch in empty space arms a draw.
+    const { action, arm } = interaction.pointerStatus(p.id);
+    if (action === 'pendingDraw' || action === 'drawing') {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 20, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * arm);
+      ctx.strokeStyle = '#cdb4ff';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    } else if (action === 'ignoredPinch' || action === 'strummed') {
+      // Fingers touched mid-swipe: treated as a strum, not a draw.
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
+      ctx.setLineDash([3, 5]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
   ctx.restore();
 }
 

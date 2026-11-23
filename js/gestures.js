@@ -11,6 +11,7 @@ const THUMB_TIP = 4, INDEX_TIP = 8, WRIST = 0, INDEX_MCP = 5, MIDDLE_MCP = 9, PI
 // Pinch distance relative to hand size, with hysteresis.
 export const PINCH_ON = 0.32;
 export const PINCH_OFF = 0.48;
+export const PINCH_CONFIRM_FRAMES = 2;
 const LOST_AFTER_MS = 220;
 
 /** Maps normalized video coords to mirrored screen coords for object-fit: cover. */
@@ -28,6 +29,7 @@ class HandState {
     const filt = { minCutoff: 1.4, beta: 0.012, dCutoff: 1.0 };
     this.thumb = new OneEuro2D(filt);
     this.index = new OneEuro2D(filt);
+    this.palm = new OneEuro2D(filt);
     this.pinching = false;
     this.lastSeen = 0;
     this.pinchRatio = 1;
@@ -73,12 +75,21 @@ export class HandGestures {
         const th = sp(THUMB_TIP), ix = sp(INDEX_TIP);
         st.thumbPos = st.thumb.filter(th.x, th.y, t);
         st.indexPos = st.index.filter(ix.x, ix.y, t);
+        // Palm (middle-finger knuckle): moves with the hand, but not when pinching.
+        st.palmPos = st.palm.filter(mid.x, mid.y, t);
 
         // Use raw tips for the pinch decision (less lag), smoothed for position.
         st.pinchRatio = Math.hypot(th.x - ix.x, th.y - ix.y) / Math.max(20, st.handSize);
         const was = st.pinching;
-        if (!was && st.pinchRatio < PINCH_ON) st.pinching = true;
-        else if (was && st.pinchRatio > PINCH_OFF) st.pinching = false;
+        if (!was) {
+          // Fingers must stay together for 2 detection frames in a row, so a
+          // one-frame blip (motion blur in a fast swipe) isn't a pinch.
+          st.closeFrames = st.pinchRatio < PINCH_ON ? (st.closeFrames || 0) + 1 : 0;
+          if (st.closeFrames >= PINCH_CONFIRM_FRAMES) st.pinching = true;
+        } else if (st.pinchRatio > PINCH_OFF) {
+          st.pinching = false;
+          st.closeFrames = 0;
+        }
         st.started = !was && st.pinching;
         st.ended = was && !st.pinching;
       }
@@ -116,6 +127,8 @@ export class HandGestures {
       tipY: ix.y,
       thumbX: th.x,
       thumbY: th.y,
+      palmX: st.palmPos ? st.palmPos.x : ix.x,
+      palmY: st.palmPos ? st.palmPos.y : ix.y,
       pinching: lost ? false : st.pinching,
       pinchStarted: !lost && !!st.started,
       pinchEnded: lost ? st.pinching : !!st.ended,

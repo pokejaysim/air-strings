@@ -102,16 +102,16 @@ function rig() {
   const synth = { pluck: (p) => { plucks.push(p); return true; } };
   const ix = new Interaction({ bank, synth });
   let t = 1000;
-  const hand = (x, y, pinching, extra = {}) => ({
-    id: 'hand:Right', source: 'hand', x, y, tipX: x, tipY: y, thumbX: x, thumbY: y,
+  const hand = (x, y, pinching, extra = {}, source = 'hand') => ({
+    id: source + ':1', source, x, y, tipX: x, tipY: y, thumbX: x, thumbY: y,
     pinching, pinchStarted: false, pinchEnded: false, lost: false, ...extra,
   });
   // Feed a gesture: list of [x, y, pinching]; derives started/ended flags.
-  const run = (pts, dtMs = 33) => {
+  const run = (pts, dtMs = 33, source = 'hand') => {
     let was = false;
     for (const [x, y, pinch] of pts) {
       t += dtMs;
-      ix.update([hand(x, y, pinch, { pinchStarted: pinch && !was, pinchEnded: !pinch && was })], W, H, t);
+      ix.update([hand(x, y, pinch, { pinchStarted: pinch && !was, pinchEnded: !pinch && was }, source)], W, H, t);
       was = pinch;
     }
   };
@@ -139,7 +139,6 @@ test('Losing the hand mid-draw cancels the string', () => {
 test('Pinch-pull-release plucks; a bigger pull is louder', () => {
   const r = rig();
   r.bank.add(200, 400, 1000, 400, W, H);
-  r.ix.setMode('play');
   r.run([[600, 402, false], ...r.line(600, 402, 600, 430, 4, true), [600, 430, false]]);
   r.run([[600, 400, false], ...r.line(600, 400, 600, 500, 6, true), [600, 500, false]]);
   assert(r.plucks.length === 2, `plucks: ${r.plucks.length}`);
@@ -149,21 +148,18 @@ test('Pinch-pull-release plucks; a bigger pull is louder', () => {
 test('A fast fingertip swipe strums every string it crosses', () => {
   const r = rig();
   for (const y of [300, 400, 500]) r.bank.add(300, y, 900, y, W, H);
-  r.ix.setMode('play');
   r.run(r.line(600, 200, 600, 620, 6, false)); // 70 px per 33 ms frame, about 1.4 diagonals/s
   assert(r.plucks.length === 3, `strums: ${r.plucks.length}`);
 });
 test('A slow fingertip crossing does not strum', () => {
   const r = rig();
   r.bank.add(300, 400, 900, 400, W, H);
-  r.ix.setMode('play');
   r.run(r.line(600, 380, 600, 420, 20, false)); // 2 px per frame
   assert(r.plucks.length === 0, `strums: ${r.plucks.length}`);
 });
 test('Holding still, then swiping, still strums on the first frame', () => {
   const r = rig();
   r.bank.add(300, 400, 900, 400, W, H);
-  r.ix.setMode('play');
   r.run([[600, 360, false], [600, 360, false], [600, 360, false]], 400);
   r.run([[600, 440, false]], 33);
   assert(r.plucks.length === 1, `strums: ${r.plucks.length}`);
@@ -171,10 +167,38 @@ test('Holding still, then swiping, still strums on the first frame', () => {
 test('Strum cooldown stops one swipe from double-triggering', () => {
   const r = rig();
   r.bank.add(300, 400, 900, 400, W, H);
-  r.ix.setMode('play');
   r.run([[600, 340, false], [600, 460, false], [600, 340, false]], 33); // back and forth in 66 ms
   assert(r.plucks.length === 1, `strums: ${r.plucks.length}`);
 });
+test('No modes: pinching ON a string plucks it and does not draw a new one', () => {
+  const r = rig();
+  r.bank.add(200, 400, 1000, 400, W, H);
+  r.run([[600, 410, false], ...r.line(600, 410, 600, 480, 5, true), [600, 480, false]]);
+  assert(r.plucks.length === 1, `plucks: ${r.plucks.length}`);
+  assert(r.bank.strings.length === 1, `strings: ${r.bank.strings.length}`);
+});
+test('No modes: pinching in EMPTY space draws, even with strings on screen', () => {
+  const r = rig();
+  r.bank.add(200, 400, 1000, 400, W, H);
+  r.run([[200, 700, false], ...r.line(200, 700, 800, 700, 8, true), [800, 700, false]]);
+  assert(r.bank.strings.length === 2, `strings: ${r.bank.strings.length}`);
+  assert(r.plucks.length === 0, `plucks: ${r.plucks.length}`);
+});
+test('Mouse: a fast flick across strings strums and does not draw', () => {
+  const r = rig();
+  for (const y of [300, 400, 500]) r.bank.add(300, y, 900, y, W, H);
+  r.run([...r.line(600, 200, 600, 620, 4, true), [600, 620, false]], 16, 'mouse');
+  assert(r.plucks.length === 3, `strums: ${r.plucks.length}`);
+  assert(r.bank.strings.length === 3, `strings: ${r.bank.strings.length}`);
+});
+test('Mouse: a normal drag across a string draws without strumming', () => {
+  const r = rig();
+  r.bank.add(300, 400, 900, 400, W, H);
+  r.run([...r.line(600, 250, 640, 560, 40, true), [640, 560, false]], 16, 'mouse'); // ~0.5 diag/s
+  assert(r.plucks.length === 0, `strums: ${r.plucks.length}`);
+  assert(r.bank.strings.length === 2, `strings: ${r.bank.strings.length}`);
+});
+
 test('Longer strings play lower than shorter ones', () => {
   const r = rig();
   const a = r.bank.add(100, 100, 1000, 100, W, H), b = r.bank.add(100, 300, 400, 300, W, H);

@@ -26,31 +26,27 @@ const app = {
   pointers: [],
   handCount: 0,
   detectFps: 0,
-  firstStringToast: false,
+  plucked: false,       // has the user played a string yet?
+  strummed: false,
+  strumTipUntil: 0,     // show the strum tip briefly after the first pluck
 };
 
 let ui; // assigned below
 const interaction = new Interaction({
   bank, synth,
   onEvent(ev) {
-    if (ev.type === 'added') {
-      if (!app.firstStringToast) {
-        app.firstStringToast = true;
-        ui.toast(`${ev.string.note} added. Draw more, then press M (or Play) to pluck.`, 3200);
-      }
+    if (ev.type === 'pluck' || ev.type === 'strum') {
+      if (!app.plucked) app.strumTipUntil = performance.now() + 6000;
+      app.plucked = true;
+      if (ev.type === 'strum') app.strummed = true;
     } else if (ev.type === 'tooShort') ui.toast('Too short. Drag a longer string.');
     else if (ev.type === 'tooMany') ui.toast('That’s plenty of strings! Undo or clear some.');
   },
 });
 
 ui = new UI({
-  onMode(m) {
-    const mode = m === 'toggle' ? (interaction.mode === 'draw' ? 'play' : 'draw') : m;
-    interaction.setMode(mode);
-    ui.setMode(mode);
-  },
   onUndo() { if (bank.undo()) ui.toast('Removed last string'); },
-  onClear() { const n = bank.clear(); if (n) ui.toast(`Cleared ${n} string${n > 1 ? 's' : ''}`); },
+  onClear() { interaction.reset(); const n = bank.clear(); if (n) ui.toast(`Cleared ${n} string${n > 1 ? 's' : ''}`); },
   onScale(s) {
     bank.setScale(s);
     ui.setScale(s);
@@ -59,10 +55,9 @@ ui = new UI({
   onVolume(v) { synth.setVolume(v); },
 });
 ui.setScale(bank.scale);
-ui.setMode('draw');
 
 if (app.mouseMode) {
-  document.getElementById('startNote').textContent = 'Mouse mode: no camera needed. Click and drag to draw strings.';
+  document.getElementById('startNote').textContent = 'Mouse mode: no camera needed. Drag in empty space to draw strings.';
   document.getElementById('startMouse').hidden = true;
 }
 
@@ -79,7 +74,6 @@ async function start(forceMouse) {
   app.started = true;
   ui.showApp();
   ui.setMouseMode(app.mouseMode);
-  ui.maybeShowHint();
   if (app.mouseMode) ui.setStatus('Mouse mode', 'live');
   else await startCamera();
 }
@@ -166,17 +160,34 @@ function frame(now) {
 
   interaction.update(pointers, W, H, now);
   bank.update(dt);
-  ui.setEmpty(emptyText());
+  ui.setCoach(coach(now));
   ui.setSoundPaused(app.started && synth.needsUnlock);
   render(pointers);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-function emptyText() {
-  if (document.getElementById('start').hidden === false) return '';
-  if (interaction.mode === 'play' && bank.strings.length === 0) return 'No strings yet. Press M or tap Draw to add some.';
-  return '';
+// Step-by-step coaching: draw -> pluck -> strum, then get out of the way.
+function coach(now) {
+  if (!app.started || ui.hintOpen) return null;
+  if (app.pointers.some((p) => p.pinching)) return null; // don't talk while they're doing it
+  const hand = !app.mouseMode;
+  if (bank.strings.length === 0) {
+    return { step: 1, text: hand
+      ? 'Pinch thumb and index in empty space, drag, and let go to draw a string.'
+      : 'Drag in empty space to draw a string.' };
+  }
+  if (!app.plucked) {
+    return { step: 2, text: hand
+      ? 'Now pinch the string, pull it sideways, and let go to play it.'
+      : 'Now drag the string sideways and let go to play it.' };
+  }
+  if (!app.strummed && now < app.strumTipUntil) {
+    return { step: 3, text: hand
+      ? 'Swipe your fingertip fast across strings to strum. Draw more for more notes.'
+      : 'Flick fast across strings to strum. Draw more for more notes.' };
+  }
+  return null;
 }
 
 // ---------------- Render ----------------

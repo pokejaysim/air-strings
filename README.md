@@ -11,14 +11,20 @@ the camera video never leaves your device.
 
 ## How to play
 
+There are no modes to switch. What you do decides what happens:
+
 | | With your hand | With a mouse / touch |
 |---|---|---|
-| **Draw a string** (Draw mode) | Pinch thumb + index together, drag, let go | Click-drag, release |
-| **Pluck** (Play mode) | Pinch a string, pull it sideways, let go. Pull further = louder | Drag a string sideways, release |
-| **Strum** (Play mode) | Swipe your index fingertip quickly across strings. Faster = louder | From empty space, drag fast across strings |
+| **Draw a string** | Pinch thumb + index in empty space, drag, let go | Click-drag in empty space, release |
+| **Pluck** | Pinch a string, pull it sideways, let go. Pull further = louder | Drag a string sideways, release |
+| **Strum** | Swipe your index fingertip quickly across strings (no pinch). Faster = louder | Flick fast across strings, starting from empty space |
 | **Press a toolbar button** | Pinch over it | Click it |
 
-Keyboard: **M** switch Draw/Play · **Z** undo · **C** clear · **H** help.
+A pinch within reach of a string grabs it (the string lights up when you're
+close enough); anywhere else, it starts a new string. A short coaching line at
+the bottom walks first-time players through draw, pluck, then strum.
+
+Keyboard: **Z** undo · **C** clear · **H** help.
 
 **Pitch:** frequency is inversely proportional to length, measured as a
 fraction of the screen diagonal, so it works the same at any window size.

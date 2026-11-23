@@ -1,20 +1,12 @@
 // DOM wiring: toolbar, keyboard shortcuts, toasts, hints, status.
 
 const $ = (id) => document.getElementById(id);
-const HINT_KEY = 'airstrings.hintSeen.v1';
-
-const store = {
-  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
-};
 
 export class UI {
-  constructor({ onMode, onUndo, onClear, onScale, onVolume }) {
-    this.handlers = { onMode, onUndo, onClear, onScale, onVolume };
+  constructor({ onUndo, onClear, onScale, onVolume }) {
+    this.handlers = { onUndo, onClear, onScale, onVolume };
     this.toastTimer = null;
 
-    $('modeDraw').addEventListener('click', () => onMode('draw'));
-    $('modePlay').addEventListener('click', () => onMode('play'));
     $('undo').addEventListener('click', () => onUndo());
     $('clear').addEventListener('click', () => onClear());
     $('help').addEventListener('click', () => this.toggleHint());
@@ -30,8 +22,7 @@ export class UI {
     window.addEventListener('keydown', (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT') return;
       const k = e.key.toLowerCase();
-      if (k === 'm') { onMode('toggle'); e.preventDefault(); }
-      else if (k === 'z') { onUndo(); e.preventDefault(); }
+      if (k === 'z') { onUndo(); e.preventDefault(); }
       else if (k === 'c') { onClear(); e.preventDefault(); }
       else if (k === 'h' || k === '?') { this.toggleHint(); e.preventDefault(); }
       else if (k === 'escape') this.hideHint();
@@ -42,13 +33,6 @@ export class UI {
     $('start').hidden = true;
     $('toolbar').hidden = false;
     $('status').hidden = false;
-  }
-
-  setMode(mode) {
-    $('modeDraw').classList.toggle('active', mode === 'draw');
-    $('modePlay').classList.toggle('active', mode === 'play');
-    document.body.classList.toggle('mode-draw', mode === 'draw');
-    document.body.classList.toggle('mode-play', mode === 'play');
   }
 
   setScale(scale) {
@@ -68,10 +52,20 @@ export class UI {
     $('soundBanner').hidden = !paused;
   }
 
-  setEmpty(text) {
-    $('empty').hidden = !text;
-    $('empty').textContent = text || '';
+  /** Bottom coaching line: { step, text } or null to hide. */
+  setCoach(coach) {
+    const key = coach ? coach.step + coach.text : '';
+    if (key === this.coachKey) return;
+    this.coachKey = key;
+    $('coach').hidden = !coach;
+    if (!coach) return;
+    $('coachStep').textContent = coach.step;
+    $('coachText').textContent = coach.text;
+    // Restart the entrance animation for each new step.
+    const el = $('coach'); el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
   }
+
+  get hintOpen() { return !$('hint').hidden; }
 
   toast(text, ms = 1800) {
     const t = $('toast');
@@ -81,9 +75,8 @@ export class UI {
     this.toastTimer = setTimeout(() => t.classList.remove('show'), ms);
   }
 
-  maybeShowHint() { if (!store.get(HINT_KEY)) $('hint').hidden = false; }
   toggleHint() { $('hint').hidden ? ($('hint').hidden = false) : this.hideHint(); }
-  hideHint() { $('hint').hidden = true; store.set(HINT_KEY, '1'); }
+  hideHint() { $('hint').hidden = true; }
 
   showCameraError(message, onRetry) {
     $('camErrorText').textContent = message;

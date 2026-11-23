@@ -90,8 +90,9 @@ export class Interaction {
       // A hand pinching over an on-screen button presses it.
       if (p.pinchStarted && p.source === 'hand') {
         const el = document.elementFromPoint(p.x, p.y);
-        const btn = el && el.closest('button:not([disabled]), a[href]');
-        // Only the app's own controls can be pressed by a pinch.
+        const btn = el && el.closest('button:not([disabled])');
+        // Only the app's own buttons can be pressed by a pinch (never links:
+        // an off-target pinch shouldn't navigate away mid-performance).
         if (btn && btn.closest('.toolbar, .hint, .banner, .sound-banner')) { btn.click(); st.action = 'ui'; }
       }
 

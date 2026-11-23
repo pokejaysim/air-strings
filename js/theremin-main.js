@@ -4,8 +4,8 @@ import { ThereminSynth, VOICES } from './theremin-synth.js';
 import { HandTracker, openCamera } from './tracking.js';
 import { HandGestures, PointerGestures } from './gestures.js';
 import {
-  layoutFor, assignRoles, readTheremin, scaleNotes, midiToAxis, axisToScreen,
-  pitchAxisPos, volumeHeight, THEREMIN_SCALES, VOLUME_FLOOR, MIDI_LOW, MIDI_HIGH,
+  layoutFor, ThereminState, scaleNotes, midiToAxis, axisToScreen,
+  THEREMIN_SCALES, RANGES, VOLUME_FLOOR,
 } from './theremin-map.js';
 import { midiToFreq, noteName } from './pitch.js';
 
@@ -19,6 +19,7 @@ const synth = new ThereminSynth();
 const tracker = new HandTracker();
 const hands = new HandGestures();
 const mouse = new PointerGestures(canvas);
+const state = new ThereminState();
 
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
@@ -29,12 +30,17 @@ const settings = {
   assist: store.get('theremin.assist', 'gentle'),
   voice: store.get('theremin.voice', 'classic'),
   scale: store.get('theremin.scale', 'pentatonic'),
+  range: store.get('theremin.range', 'mid'),
 };
 if (!['off', 'gentle', 'snap'].includes(settings.assist)) settings.assist = 'gentle';
 if (!VOICES[settings.voice]) settings.voice = 'classic';
 if (!THEREMIN_SCALES[settings.scale]) settings.scale = 'pentatonic';
+if (!RANGES[settings.range]) settings.range = 'mid';
 
-const GLIDE = { off: 0.012, gentle: 0.02, snap: 0.045 };
+// Minimum pitch glide per assist mode; with hands it also stretches to the
+// camera's frame interval so slides are smooth instead of stepping.
+const GLIDE = { off: 0.02, gentle: 0.025, snap: 0.045 };
+const PRESS_DWELL_MS = 140; // pinch must be held on a button this long to press it
 
 const app = {
   mouseMode: params.get('mouse') === '1',
@@ -43,41 +49,37 @@ const app = {
   trackerReady: false,
   W: 0, H: 0, dpr: 1,
   layout: null,
+  toolbarRect: null,
   roles: { pitch: null, volume: null },
-  prevRoles: {},
   reading: null,
   trail: [],
   everPlayed: false,
   everVolume: false,
-  bothSince: 0,
   handCount: 0,
   detectFps: 0,
+  detectInterval: 33,
+  lastDetectT: 0,
   delegate: '',
+  notes: [],
+  presses: new Map(), // pointer id -> { btn, t0, done }
 };
 
 // ---------------- Controls ----------------
 const ASSIST_LABEL = { off: 'Off', gentle: 'Gentle', snap: 'Snap' };
-function setAssist(a) {
-  settings.assist = a; store.set('theremin.assist', a);
-  $('assistVal').textContent = ASSIST_LABEL[a];
-}
-function setVoice(v) {
-  settings.voice = v; store.set('theremin.voice', v);
-  synth.setVoice(v);
-  $('voiceVal').textContent = VOICES[v].label;
-}
-function setScale(s) {
-  settings.scale = s; store.set('theremin.scale', s);
-  $('scaleVal').textContent = THEREMIN_SCALES[s].label;
-}
+function refreshNotes() { const r = RANGES[settings.range]; app.notes = scaleNotes(settings.scale, r.low, r.high); }
+function setAssist(a) { settings.assist = a; store.set('theremin.assist', a); $('assistVal').textContent = ASSIST_LABEL[a]; }
+function setVoice(v) { settings.voice = v; store.set('theremin.voice', v); synth.setVoice(v); $('voiceVal').textContent = VOICES[v].label; }
+function setScale(s) { settings.scale = s; store.set('theremin.scale', s); $('scaleVal').textContent = THEREMIN_SCALES[s].label; refreshNotes(); }
+function setRange(r) { settings.range = r; store.set('theremin.range', r); $('rangeVal').textContent = RANGES[r].label; refreshNotes(); }
 const cycle = (list, cur) => list[(list.indexOf(cur) + 1) % list.length];
-
 const cycleAssist = () => setAssist(cycle(['off', 'gentle', 'snap'], settings.assist));
 const cycleVoice = () => setVoice(cycle(Object.keys(VOICES), settings.voice));
 const cycleScale = () => setScale(cycle(Object.keys(THEREMIN_SCALES), settings.scale));
+const cycleRange = () => setRange(cycle(Object.keys(RANGES), settings.range));
 $('assistBtn').addEventListener('click', cycleAssist);
 $('voiceBtn').addEventListener('click', cycleVoice);
 $('scaleBtn').addEventListener('click', cycleScale);
+$('rangeBtn').addEventListener('click', cycleRange);
 for (const b of document.querySelectorAll('.toolbar button, .toolbar a')) {
   b.addEventListener('click', () => { b.classList.remove('pressed'); void b.offsetWidth; b.classList.add('pressed'); });
 }
@@ -91,12 +93,17 @@ window.addEventListener('keydown', (e) => {
   if (k === 'a') cycleAssist();
   else if (k === 'v') cycleVoice();
   else if (k === 's') cycleScale();
+  else if (k === 'r') cycleRange();
   else if (k === 'h' || k === '?') $('hint').hidden = !$('hint').hidden;
   else if (k === 'escape') $('hint').hidden = true;
   else return;
   e.preventDefault();
 });
-setAssist(settings.assist); setVoice(settings.voice); setScale(settings.scale);
+setAssist(settings.assist); setVoice(settings.voice); setScale(settings.scale); setRange(settings.range);
+
+// Never leave a tone droning in a hidden tab.
+document.addEventListener('visibilitychange', () => { if (document.hidden) synth.silence(); });
+window.addEventListener('pagehide', () => synth.silence());
 
 let toastTimer;
 function toast(text, ms = 1600) {
@@ -193,32 +200,46 @@ function resize() {
   canvas.width = Math.round(app.W * dpr);
   canvas.height = Math.round(app.H * dpr);
   const tb = $('toolbar');
-  const top = tb.hidden ? 16 : tb.getBoundingClientRect().bottom + 10;
+  const rect = tb.hidden ? null : tb.getBoundingClientRect();
+  app.toolbarRect = rect;
+  const portrait = app.W < app.H;
+  // In portrait the highest notes sit at the top: keep them clear of the toolbar.
+  const top = rect ? rect.bottom + (portrait ? 34 : 10) : 16;
   app.layout = layoutFor(app.W, app.H, { top, bottom: 56 });
   for (const el of document.querySelectorAll('.axis-word')) el.textContent = app.layout.landscape ? 'left–right' : 'up–down';
+  for (const el of document.querySelectorAll('.tone-word')) el.textContent = app.layout.landscape ? 'up' : 'right';
 }
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 // The toolbar can wrap differently as labels change; keep the play area in sync.
 if (window.ResizeObserver) new ResizeObserver(() => resize()).observe($('toolbar'));
-window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 resize();
 
+/** Is a point inside (or just below) the toolbar? */
+function nearToolbar(x, y, pad = 18) {
+  const r = app.toolbarRect;
+  return !!r && x > r.left - pad && x < r.right + pad && y < r.bottom + pad && y > r.top - pad;
+}
+
 // ---------------- Loop ----------------
-let lastT = performance.now();
 let detectCount = 0, detectWindow = performance.now();
 
 function frame(now) {
-  lastT = now;
   if (window.innerWidth !== app.W || window.innerHeight !== app.H) resize();
   const L = app.layout;
 
   // Mouse / touch: only pressed pointers play.
   const ptrs = mouse.update().filter((p) => p.pinching);
   let handPtrs = [];
+  let newDetection = false;
   if (app.cameraOn && app.trackerReady && !app.mouseMode) {
     let det = null;
     try { det = tracker.detect(video, now); } catch (err) { console.warn('detect failed', err); }
-    if (det) { detectCount++; app.handCount = det.length; }
+    if (det) {
+      detectCount++; app.handCount = det.length; newDetection = true;
+      if (app.lastDetectT) app.detectInterval = app.detectInterval * 0.8 + Math.min(120, now - app.lastDetectT) * 0.2;
+      app.lastDetectT = now;
+    }
     handPtrs = hands.update(det, video, app.W, app.H, now).filter((p) => !p.lost);
     if (now - detectWindow > 1000) {
       app.detectFps = Math.round((detectCount * 1000) / (now - detectWindow));
@@ -226,53 +247,77 @@ function frame(now) {
       const n = app.handCount;
       setStatus(n ? `Tracking ${n} hand${n > 1 ? 's' : ''} · ${app.detectFps} fps · ${app.delegate}` : 'Show your hands to the camera', 'live');
     }
-    // A pinch over a toolbar button presses it.
-    for (const p of handPtrs) {
-      if (!p.pinchStarted) continue;
-      const el = document.elementFromPoint(p.x, p.y);
-      const btn = el && el.closest('button:not([disabled]), a[href]');
-      if (btn && btn.closest('.toolbar, .hint, .banner, .sound-banner')) btn.click();
-    }
+    handlePinchPresses(handPtrs, now);
   }
   app.handPtrs = handPtrs;
 
-  // Playing points: hands use the palm (steady while pinching); hands raised
-  // up into the toolbar don't play.
-  const points = [
-    ...handPtrs.map((p) => ({ id: p.id, x: p.palmX ?? p.x, y: p.palmY ?? p.y, source: 'hand' })),
-    ...ptrs.map((p) => ({ id: p.id, x: p.x, y: p.y, source: 'mouse' })),
-  ].filter((p) => p.y >= L.pitch.y - 4);
+  // Playing points. Hands use the palm (steady while pinching). A hand that is
+  // reaching into the toolbar doesn't play (its role is simply paused).
+  const points = [];
+  for (const p of handPtrs) {
+    p.atToolbar = nearToolbar(p.x, p.y) || nearToolbar(p.tipX, p.tipY);
+    if (!p.atToolbar) points.push({ id: p.id, x: p.palmX ?? p.x, y: p.palmY ?? p.y, source: 'hand', firstSeen: p.firstSeen });
+  }
+  for (const p of ptrs) points.push({ id: p.id, x: p.x, y: p.y, source: 'mouse' });
 
-  app.roles = assignRoles(points, L, app.prevRoles);
-  app.prevRoles = { pitchId: app.roles.pitch?.id, volumeId: app.roles.volume?.id };
-  const r = readTheremin(app.roles, L, settings);
+  const r = state.step(points, L, settings, now);
   app.reading = r;
-  synth.update(r, GLIDE[settings.assist]);
+  app.roles = r.roles;
+  const handGlide = app.cameraOn && !app.mouseMode ? (app.detectInterval / 1000) * 0.6 : 0;
+  synth.update(r, Math.max(GLIDE[settings.assist], handGlide));
 
   if (r.sounding) {
     app.everPlayed = true;
-    if (app.roles.volume) app.everVolume = true;
-    const c = axisToScreen(midiToAxis(r.midi), L);
-    const hp = app.roles.pitch;
-    app.trail.push({ x: L.axis === 'x' ? c : hp.x, y: L.axis === 'x' ? hp.y : c, hue: hueFor(r.midi), a: r.level, t: now });
+    if (r.roles.volume) app.everVolume = true;
+    if (newDetection || ptrs.length) {
+      const c = axisToScreen(midiToAxis(r.midi, r.range.low, r.range.high), L);
+      const hp = r.roles.pitch;
+      app.trail.push({ x: L.axis === 'x' ? c : hp.x, y: L.axis === 'x' ? hp.y : c, hue: hueFor(r.midi, r.range), a: r.level, t: now });
+    }
   }
-  while (app.trail.length && (now - app.trail[0].t > 900 || app.trail.length > 90)) app.trail.shift();
-  if (app.roles.pitch && app.roles.volume) { if (!app.bothSince) app.bothSince = now; } else app.bothSince = 0;
+  let drop = 0;
+  while (drop < app.trail.length && (now - app.trail[drop].t > 900)) drop++;
+  if (drop) app.trail.splice(0, drop);
+  if (app.trail.length > 60) app.trail.splice(0, app.trail.length - 60);
 
   setSoundPaused(app.started && synth.needsUnlock);
-  setCoach(coach(now));
-  render(now);
+  setCoach(coach());
+  render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-function coach(now) {
+/**
+ * Pinch-to-press for hands: the pinch has to stay on the same button for a
+ * moment (so a pinch while playing high notes doesn't press anything), and
+ * only buttons count — links would leave the page mid-performance.
+ */
+function handlePinchPresses(handPtrs, now) {
+  const live = new Set();
+  for (const p of handPtrs) {
+    live.add(p.id);
+    if (!p.pinching) { app.presses.delete(p.id); continue; }
+    const el = document.elementFromPoint(p.x, p.y);
+    const btn = el && el.closest('button:not([disabled])');
+    const ok = btn && btn.closest('.toolbar, .hint, .banner');
+    let pr = app.presses.get(p.id);
+    if (p.pinchStarted || !pr) { pr = { btn: ok ? btn : null, t0: now, done: false }; app.presses.set(p.id, pr); }
+    if (!ok || btn !== pr.btn) { pr.btn = null; continue; } // drifted off: no press
+    pr.btn.classList.add('arming');
+    if (!pr.done && now - pr.t0 >= PRESS_DWELL_MS) { pr.done = true; pr.btn.classList.remove('arming'); pr.btn.click(); }
+  }
+  for (const [id, pr] of app.presses) if (!live.has(id)) app.presses.delete(id);
+  for (const b of document.querySelectorAll('.arming')) {
+    if (![...app.presses.values()].some((pr) => pr.btn === b && !pr.done)) b.classList.remove('arming');
+  }
+}
+
+function coach() {
   if (!app.started || !$('hint').hidden) return null;
   const hand = !app.mouseMode;
-  const L = app.layout;
-  const dir = L.landscape ? 'left–right' : 'up–down';
+  const dir = app.layout.landscape ? 'left–right' : 'up–down';
   const { pitch, volume } = app.roles;
-  if (!pitch && volume) {
+  if (!pitch && volume && !app.reading.remembered) {
     return { step: 1, text: hand ? 'That hand sets volume. Bring a hand into the right side to play notes.' : 'That’s the volume side. Press on the right side to play notes.' };
   }
   if (!app.everPlayed) {
@@ -285,83 +330,93 @@ function coach(now) {
 }
 
 // ---------------- Render ----------------
-const hueFor = (midi) => 200 - 170 * ((midi - MIDI_LOW) / (MIDI_HIGH - MIDI_LOW)) + (midi < MIDI_LOW ? 0 : 0);
+const hueFor = (midi, range) => 200 - 170 * Math.min(1, Math.max(0, (midi - range.low) / (range.high - range.low)));
 
-function render(now) {
+function render() {
   const { W, H, dpr } = app;
   const L = app.layout;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   if (!app.started) return;
-  const r = app.reading || {};
+  const r = app.reading || { range: RANGES[settings.range] };
 
+  drawWaveform(r);   // background layer
   drawZones(L, r);
   drawGuides(L, r);
-  drawWaveform(L, r);
   drawTrail();
   drawHands(L, r);
+}
+
+// Glow without shadowBlur (slow on phones): a wide faint stroke under a thin bright one.
+function glowStroke(color, faint, width) {
+  ctx.strokeStyle = faint; ctx.lineWidth = width + 8; ctx.stroke();
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
 }
 
 function drawZones(L, r) {
   const v = L.volume, p = L.pitch;
   ctx.save();
-  // Volume zone tint + divider
   ctx.fillStyle = 'rgba(120, 224, 255, 0.035)';
   ctx.fillRect(v.x, v.y, v.w, v.h);
   ctx.strokeStyle = 'rgba(255,255,255,0.12)';
   ctx.setLineDash([6, 8]);
   ctx.beginPath(); ctx.moveTo(L.split, v.y); ctx.lineTo(L.split, v.y + v.h); ctx.stroke();
   ctx.setLineDash([]);
-  // Silence floor
   const floorY = v.y + v.h * (1 - VOLUME_FLOOR);
   ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-  ctx.beginPath(); ctx.moveTo(v.x + 12, floorY); ctx.lineTo(v.x + v.w - 12, floorY); ctx.stroke();
-  ctx.font = '600 11px ui-rounded, system-ui, sans-serif';
-  ctx.fillStyle = 'rgba(238,241,248,0.45)';
+  ctx.beginPath(); ctx.moveTo(v.x + 12, floorY); ctx.lineTo(v.x + v.w - 28, floorY); ctx.stroke();
+  ctx.font = '700 11px ui-rounded, system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('VOLUME', v.x + v.w / 2, v.y + 18);
+  ctx.fillStyle = 'rgba(238,241,248,0.5)';
+  ctx.fillText('VOLUME', v.x + v.w / 2, v.y + 16);
   ctx.fillText('silent', v.x + v.w / 2, floorY + 16);
-  ctx.fillText('PITCH', p.x + p.w / 2, p.y + 18);
+  ctx.fillText('PITCH', p.x + p.w / 2, p.y + 16);
+  ctx.font = '600 10px ui-rounded, system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(238,241,248,0.35)';
+  if (L.landscape) { ctx.textAlign = 'right'; ctx.fillText('brighter ↑', p.x + p.w - 8, p.y + 16); }
+  else { ctx.textAlign = 'left'; ctx.fillText('brighter →', p.x + 8, p.y + 30); }
   // Volume meter along the divider
   const level = r.sounding ? r.level : (r.levelPreview || 0);
   const mx = L.split - 16, mTop = v.y + 34, mBot = floorY;
+  ctx.lineCap = 'round';
   ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-  ctx.lineWidth = 6; ctx.lineCap = 'round';
+  ctx.lineWidth = 6;
   ctx.beginPath(); ctx.moveTo(mx, mBot); ctx.lineTo(mx, mTop); ctx.stroke();
   if (level > 0.001) {
-    const grad = ctx.createLinearGradient(0, mBot, 0, mTop);
-    grad.addColorStop(0, '#78e0ff'); grad.addColorStop(1, '#d7c4ff');
-    ctx.strokeStyle = grad;
-    ctx.shadowColor = '#78e0ff'; ctx.shadowBlur = 10;
-    ctx.beginPath(); ctx.moveTo(mx, mBot); ctx.lineTo(mx, mBot - (mBot - mTop) * level); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mx, mBot); ctx.lineTo(mx, mBot - (mBot - mTop) * level);
+    glowStroke('#9fe8ff', 'rgba(120,224,255,0.18)', 6);
   }
   ctx.restore();
 }
 
 function drawGuides(L, r) {
-  const notes = scaleNotes(settings.scale);
+  const range = RANGES[settings.range];
   const p = L.pitch;
   ctx.save();
   ctx.font = '600 11px ui-rounded, system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const cur = r.sounding ? Math.round(r.midi) : null;
-  for (const n of notes) {
-    const c = axisToScreen(midiToAxis(n), L);
+  for (const n of app.notes) {
+    const c = axisToScreen(midiToAxis(n, range.low, range.high), L);
     const name = noteName(midiToFreq(n));
     const isC = n % 12 === 0;
     const sharp = name.includes('#');
     const active = cur === n && (settings.assist !== 'off' || Math.abs(r.midi - n) < 0.15);
-    ctx.strokeStyle = active ? `hsla(${hueFor(n)}, 95%, 70%, 0.9)` : `rgba(255,255,255,${isC ? 0.22 : sharp ? 0.06 : 0.11})`;
+    ctx.strokeStyle = active ? `hsla(${hueFor(n, range)}, 95%, 70%, 0.9)` : `rgba(255,255,255,${isC ? 0.22 : sharp ? 0.06 : 0.11})`;
     ctx.lineWidth = active ? 2 : 1;
     ctx.beginPath();
-    if (L.axis === 'x') { ctx.moveTo(c, p.y + 30); ctx.lineTo(c, p.y + p.h); }
+    if (L.axis === 'x') { ctx.moveTo(c, p.y + 28); ctx.lineTo(c, p.y + p.h - 20); }
     else { ctx.moveTo(p.x, c); ctx.lineTo(p.x + p.w - 34, c); }
     ctx.stroke();
     if (!sharp || settings.scale !== 'chromatic') {
-      ctx.fillStyle = active ? `hsl(${hueFor(n)}, 100%, 85%)` : `rgba(238,241,248,${isC ? 0.75 : 0.45})`;
-      if (L.axis === 'x') ctx.fillText(name, c, p.y + p.h - 10);
-      else { ctx.textAlign = 'right'; ctx.fillText(name, p.x + p.w - 6, c); ctx.textAlign = 'center'; }
+      // Labels on a dark pill so the waveform behind never hides them.
+      const lx = L.axis === 'x' ? c : p.x + p.w - 18;
+      const ly = L.axis === 'x' ? p.y + p.h - 10 : c;
+      ctx.fillStyle = 'rgba(8,10,18,0.6)';
+      ctx.fillRect(lx - 13, ly - 7, 26, 14);
+      ctx.fillStyle = active ? `hsl(${hueFor(n, range)}, 100%, 85%)` : `rgba(238,241,248,${isC ? 0.8 : 0.5})`;
+      ctx.fillText(name, lx, ly);
     }
   }
   ctx.restore();
@@ -372,40 +427,43 @@ function drawTrail() {
   if (tr.length < 2) return;
   ctx.save();
   ctx.lineCap = 'round';
-  ctx.globalCompositeOperation = 'lighter';
   for (let i = 1; i < tr.length; i++) {
     const a = tr[i - 1], b = tr[i];
     const k = i / tr.length;
-    ctx.strokeStyle = `hsla(${b.hue}, 95%, 65%, ${0.6 * k * (0.3 + 0.7 * b.a)})`;
-    ctx.lineWidth = 2 + 10 * k * b.a;
+    ctx.strokeStyle = `hsla(${b.hue}, 95%, 65%, ${0.55 * k * (0.3 + 0.7 * b.a)})`;
+    ctx.lineWidth = 2 + 9 * k * b.a;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   ctx.restore();
 }
 
-function drawWaveform(L, r) {
+function drawWaveform(r) {
   const wave = synth.waveform();
   if (!wave) return;
   const { W, H } = app;
-  const y0 = H - 92, amp = 46;
-  // Show ~3 cycles of the current note so the shape is readable.
+  const y0 = H - 96, amp = 44;
   const freq = r.sounding ? r.freq : 220;
   const sr = synth.ctx.sampleRate;
-  const n = Math.min(wave.length, Math.max(64, Math.round((sr / freq) * 3)));
+  const n = Math.min(wave.length - 1, Math.max(64, Math.round((sr / freq) * 3)));
   // Start at an upward zero crossing so the trace holds still.
   let s0 = 0;
   for (let i = 1; i < wave.length - n; i++) { if (wave[i - 1] < 0 && wave[i] >= 0) { s0 = i; break; } }
+  const steps = Math.min(n, 240); // decimate: a few hundred points is plenty
   ctx.save();
-  ctx.strokeStyle = r.sounding ? `hsla(${hueFor(r.midi)}, 95%, 70%, 0.85)` : 'rgba(255,255,255,0.12)';
-  ctx.lineWidth = 2;
-  ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = r.sounding ? 12 : 0;
+  ctx.lineJoin = 'round';
   ctx.beginPath();
-  for (let i = 0; i < n; i++) {
-    const x = 24 + (i / (n - 1)) * (W - 48);
+  for (let j = 0; j <= steps; j++) {
+    const i = Math.round((j / steps) * (n - 1));
+    const x = 24 + (j / steps) * (W - 48);
     const y = y0 - wave[s0 + i] * amp * 2.2;
-    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
   }
-  ctx.stroke();
+  if (r.sounding) {
+    const hue = hueFor(r.midi, r.range);
+    glowStroke(`hsla(${hue}, 95%, 72%, 0.55)`, `hsla(${hue}, 95%, 60%, 0.08)`, 2);
+  } else {
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 2; ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -413,33 +471,29 @@ function drawHands(L, r) {
   ctx.save();
   // Fingertip/thumb markers for every tracked hand (so you see what the app sees).
   for (const p of app.handPtrs || []) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    const col = p.atToolbar ? 'rgba(255,220,140,0.9)' : 'rgba(255,255,255,0.7)';
+    ctx.strokeStyle = p.atToolbar ? 'rgba(255,220,140,0.6)' : 'rgba(255,255,255,0.35)';
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(p.thumbX, p.thumbY); ctx.lineTo(p.tipX, p.tipY); ctx.stroke();
-    for (const [x, y] of [[p.thumbX, p.thumbY], [p.tipX, p.tipY]]) {
-      ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fill();
-    }
+    ctx.fillStyle = col;
+    for (const [x, y] of [[p.thumbX, p.thumbY], [p.tipX, p.tipY]]) { ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); }
   }
-  const { pitch, volume } = app.roles;
+  const { pitch, volume } = r.roles || {};
   if (volume) {
     ctx.beginPath(); ctx.arc(volume.x, volume.y, 16, 0, Math.PI * 2);
-    ctx.strokeStyle = '#78e0ff'; ctx.lineWidth = 2.5; ctx.shadowColor = '#78e0ff'; ctx.shadowBlur = 12; ctx.stroke();
-    ctx.shadowBlur = 0;
+    glowStroke('#78e0ff', 'rgba(120,224,255,0.15)', 2.5);
     label(`${Math.round((r.sounding ? r.level : r.levelPreview || 0) * 100)}%`, volume.x, volume.y - 30, '#bff0ff');
   }
   if (pitch && r.midi != null) {
-    const hue = hueFor(r.midi);
-    // Where the sound actually is (after assist) vs where the hand is.
-    const c = axisToScreen(midiToAxis(r.midi), L);
-    ctx.strokeStyle = `hsla(${hue}, 95%, 70%, 0.8)`;
-    ctx.lineWidth = 3; ctx.shadowColor = `hsl(${hue}, 95%, 65%)`; ctx.shadowBlur = 16;
+    const hue = hueFor(r.midi, r.range);
+    const c = axisToScreen(midiToAxis(r.midi, r.range.low, r.range.high), L);
+    ctx.lineCap = 'round';
     ctx.beginPath();
     if (L.axis === 'x') { ctx.moveTo(c, pitch.y - 40); ctx.lineTo(c, pitch.y + 40); }
     else { ctx.moveTo(pitch.x - 40, c); ctx.lineTo(pitch.x + 40, c); }
-    ctx.stroke();
+    glowStroke(`hsla(${hue}, 95%, 72%, 0.9)`, `hsla(${hue}, 95%, 60%, 0.15)`, 3);
     ctx.beginPath(); ctx.arc(pitch.x, pitch.y, 18, 0, Math.PI * 2);
-    ctx.lineWidth = 2.5; ctx.stroke();
-    ctx.shadowBlur = 0;
+    glowStroke(`hsla(${hue}, 95%, 72%, 0.9)`, `hsla(${hue}, 95%, 60%, 0.12)`, 2.5);
     const cents = settings.assist === 'off' && r.cents ? ` ${r.cents > 0 ? '+' : ''}${r.cents}¢` : '';
     label(r.note + cents, pitch.x, pitch.y - 36, `hsl(${hue}, 100%, 88%)`, 16);
   }
@@ -461,4 +515,4 @@ function label(text, x, y, color, size = 13) {
 }
 
 // Debug handle (used for automated checks; harmless otherwise).
-window.theremin = { app, synth, settings, start, setAssist, setVoice, setScale };
+window.theremin = { app, synth, settings, tracker, state, start, setAssist, setVoice, setScale, setRange };

@@ -29,7 +29,9 @@ class HandState {
     const filt = { minCutoff: 1.4, beta: 0.012, dCutoff: 1.0 };
     this.thumb = new OneEuro2D(filt);
     this.index = new OneEuro2D(filt);
-    this.palm = new OneEuro2D(filt);
+    // Palm drives the theremin's pitch: lighter smoothing so small corrections
+    // and vibrato come through; the instrument's assist adds stability.
+    this.palm = new OneEuro2D({ minCutoff: 2.6, beta: 0.02, dCutoff: 1.0 });
     this.pinching = false;
     this.lastSeen = 0;
     this.pinchRatio = 1;
@@ -40,6 +42,7 @@ class HandState {
 export class HandGestures {
   constructor() {
     this.hands = new Map();
+    this.nextId = 0;
   }
 
   /**
@@ -53,17 +56,44 @@ export class HandGestures {
     const pointers = [];
 
     if (detections) {
-      // Assign stable ids: prefer handedness, avoid two hands sharing one id.
-      const used = new Set();
-      for (const det of detections) {
-        let id = det.handedness;
-        if (used.has(id)) id = id + '-2';
-        used.add(id);
+      // Stable identity: match each detection to the nearest hand from the
+      // previous frames (by palm position). MediaPipe's Left/Right label flips
+      // too often to be an id; it's only a tie-breaker.
+      const diag = Math.hypot(W, H);
+      const dets = detections.map((det) => {
+        const m = det.landmarks[MIDDLE_MCP];
+        return { det, palm: videoToScreen(m.x, m.y, vw, vh, W, H) };
+      });
+      const free = new Set(this.hands.keys());
+      const pairs = [];
+      for (let di = 0; di < dets.length; di++) {
+        for (const id of free) {
+          const st = this.hands.get(id);
+          const ref = st.rawPalm || st.palmPos;
+          if (!ref) continue;
+          let d = Math.hypot(dets[di].palm.x - ref.x, dets[di].palm.y - ref.y);
+          if (st.label && st.label !== dets[di].det.handedness) d += 0.02 * diag;
+          pairs.push({ di, id, d });
+        }
+      }
+      pairs.sort((a, b) => a.d - b.d);
+      const assigned = new Map();
+      for (const { di, id, d } of pairs) {
+        if (assigned.has(di) || !free.has(id) || d > 0.3 * diag) continue;
+        assigned.set(di, id);
+        free.delete(id);
+      }
+      for (let di = 0; di < dets.length; di++) {
+        const { det, palm } = dets[di];
+        let id = assigned.get(di);
+        if (!id) { id = 'h' + (++this.nextId); this.hands.set(id, new HandState(id)); }
         seen.add(id);
-        let st = this.hands.get(id);
-        if (!st) { st = new HandState(id); this.hands.set(id, st); }
+        const st = this.hands.get(id);
         st.lastSeen = nowMs;
         st.missing = false;
+        st.label = det.handedness;
+        st.rawPalm = palm;
+        if (!st.firstSeen) st.firstSeen = nowMs;
 
         const L = det.landmarks;
         const sp = (i) => videoToScreen(L[i].x, L[i].y, vw, vh, W, H);
@@ -129,6 +159,7 @@ export class HandGestures {
       thumbY: th.y,
       palmX: st.palmPos ? st.palmPos.x : ix.x,
       palmY: st.palmPos ? st.palmPos.y : ix.y,
+      firstSeen: st.firstSeen,
       pinching: lost ? false : st.pinching,
       pinchStarted: !lost && !!st.started,
       pinchEnded: lost ? st.pinching : !!st.ended,

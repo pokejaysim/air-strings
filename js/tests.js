@@ -403,6 +403,102 @@ test('Theremin: reading reports note name and frequency', () => {
   assert(r.note === 'A3' && near(r.freq, 220, 1e-6), `${r.note} ${r.freq}`);
 });
 
+// ---- Theremin: review fixes ----
+const thSettings = (o = {}) => ({ assist: 'gentle', scale: 'pentatonic', range: 'mid', ...o });
+const hp = (id, x, y, firstSeen = -1e9) => ({ id, x, y, source: 'hand', firstSeen });
+test('Theremin: dropping the volume hand out of frame stays silent (no 70% surprise)', () => {
+  const L = TH.layoutFor(1200, 700), S = new TH.ThereminState();
+  let t = 0;
+  const pitchP = hp('p', 900, 300);
+  // Volume hand at the bottom (silent), then it leaves the frame.
+  let r;
+  for (let i = 0; i < 5; i++) r = S.step([hp('v', 200, 690), pitchP], L, thSettings(), (t += 33));
+  assert(!r.sounding, 'should be silent with the volume hand at the bottom');
+  for (let i = 0; i < 20; i++) r = S.step([pitchP], L, thSettings(), (t += 33)); // ~660 ms later
+  assert(!r.sounding, `came back at ${r.level}`);
+  for (let i = 0; i < 40; i++) r = S.step([pitchP], L, thSettings(), (t += 33)); // > 1.5 s
+  assert(r.sounding && r.level === TH.ONE_HAND_LEVEL, 'after a while one hand plays at steady volume');
+});
+test('Theremin: a hand passing through the frame does not sound straight away', () => {
+  const L = TH.layoutFor(1200, 700), S = new TH.ThereminState();
+  const r1 = S.step([hp('n', 900, 300, 1000)], L, thSettings(), 1000 + 40);
+  assert(!r1.sounding, 'sounded after 40 ms');
+  const r2 = S.step([hp('n', 900, 300, 1000)], L, thSettings(), 1000 + 200);
+  assert(r2.sounding, 'should sound once it has been seen a moment');
+});
+test('Theremin: two hands near each other do not swap roles unless they clearly cross', () => {
+  const L = TH.layoutFor(1200, 700);
+  let roles = TH.assignRoles([hp('a', 420, 300), hp('b', 520, 300)], L);
+  assert(roles.pitch.id === 'b', 'right hand starts as pitch');
+  const prev = { pitchId: 'b', volumeId: 'a' };
+  roles = TH.assignRoles([hp('a', 500, 300), hp('b', 480, 300)], L, prev); // small overlap
+  assert(roles.pitch.id === 'b' && roles.volume.id === 'a', 'small overlap swapped roles');
+  roles = TH.assignRoles([hp('a', 800, 300), hp('b', 480, 300)], L, prev); // clear cross
+  assert(roles.pitch.id === 'a', 'clear crossing should swap');
+});
+test('Theremin: two hands both on the volume side play nothing', () => {
+  const L = TH.layoutFor(1200, 700);
+  const roles = TH.assignRoles([hp('a', 100, 300), hp('b', 300, 300)], L);
+  assert(!roles.pitch, 'a hand on the volume side became the pitch hand');
+});
+test('Theremin: in portrait a lone pitch hand can drift sideways without cutting out', () => {
+  const L = TH.layoutFor(390, 844);
+  let prev = { pitchId: 'a' };
+  const r = TH.assignRoles([hp('a', L.split - 0.1 * 390, 400)], L, prev); // 10% over the line
+  assert(r.pitch && r.pitch.id === 'a', 'lost the pitch role');
+});
+test('Theremin: Snap does not trill when the hand jitters near a midpoint', () => {
+  const notes = TH.scaleNotes('chromatic');
+  let cur = null;
+  const outs = new Set();
+  for (const m of [60.48, 60.53, 60.47, 60.55, 60.5, 60.46, 60.54]) { cur = TH.snapWithHysteresis(m, notes, cur); outs.add(cur); }
+  assert(outs.size === 1, `trilled between ${[...outs]}`);
+  assert(TH.snapWithHysteresis(60.7, notes, 60) === 61, 'clear move should change note');
+});
+test('Theremin: vibrato passes through Gentle assist', () => {
+  const L = TH.layoutFor(1200, 700), S = new TH.ThereminState();
+  const r = TH.RANGES.mid;
+  const xFor = (m) => TH.axisToScreen(TH.midiToAxis(m, r.low, r.high), L);
+  let t = 0, lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < 90; i++) {
+    t += 33;
+    const m = 60 + 0.3 * Math.sin(2 * Math.PI * 6 * (t / 1000)); // ±0.3 semitone at 6 Hz around C4
+    const out = S.step([hp('p', xFor(m), 300)], L, thSettings(), t);
+    if (i > 30) { lo = Math.min(lo, out.midi); hi = Math.max(hi, out.midi); }
+  }
+  assert(hi - lo > 0.3, `vibrato depth only ${(hi - lo).toFixed(2)} semitones`);
+  assert(Math.abs((hi + lo) / 2 - 60) < 0.15, 'stays centred on the note');
+});
+test('Theremin: Range moves the octaves', () => {
+  assert(TH.axisToMidi(0.5, TH.RANGES.low.low, TH.RANGES.low.high) === 48, 'low range middle is C3');
+  assert(TH.axisToMidi(1, TH.RANGES.high.low, TH.RANGES.high.high) === 84, 'high range top is C6');
+  const L = TH.layoutFor(1200, 700), S = new TH.ThereminState();
+  const out = S.step([hp('p', L.pitch.x + L.pitch.w / 2, 300)], L, thSettings({ range: 'high', assist: 'off' }), 5000);
+  assert(near(out.midi, 72), `high range centre ${out.midi}`);
+});
+test('Theremin: the pitch hand\'s other direction sets tone', () => {
+  const land = TH.layoutFor(1200, 700), port = TH.layoutFor(390, 844);
+  assert(TH.toneAxisPos(900, 10, land) > TH.toneAxisPos(900, 690, land), 'landscape: up is brighter');
+  assert(TH.toneAxisPos(380, 400, port) > TH.toneAxisPos(200, 400, port), 'portrait: right is brighter');
+});
+test('Hands keep their identity when MediaPipe flips Left/Right labels', () => {
+  const g = new HandGestures();
+  const video = { videoWidth: 1280, videoHeight: 720 };
+  const handAt = (x, label) => {
+    const L = fakeHand(0.5)[0].landmarks.map((p) => ({ ...p, x: p.x + x - 0.5 }));
+    return { landmarks: L, handedness: label, score: 1 };
+  };
+  const a = g.update([handAt(0.3, 'Left'), handAt(0.7, 'Right')], video, 1280, 720, 0);
+  const ids = Object.fromEntries(a.map((p) => [Math.round(p.palmX), p.id]));
+  // Next frame the labels are swapped, positions barely changed.
+  const b = g.update([handAt(0.301, 'Right'), handAt(0.701, 'Left')], video, 1280, 720, 33);
+  for (const p of b) {
+    const before = Object.entries(ids).find(([x]) => Math.abs(+x - p.palmX) < 10);
+    assert(before && before[1] === p.id, `hand at ${Math.round(p.palmX)} changed id`);
+  }
+  assert(b.length === 2, `ghost hands: ${b.length}`);
+});
+
 // ---- render ----
 const passed = results.filter((r) => r.ok).length;
 const allOk = passed === results.length;

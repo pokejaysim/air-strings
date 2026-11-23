@@ -66,6 +66,11 @@ export async function openCamera(video) {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw friendly('unsupported', 'This browser cannot access a camera.');
   }
+  // Retrying: release any camera we already hold before asking again.
+  if (video.srcObject) {
+    for (const t of video.srcObject.getTracks()) t.stop();
+    video.srcObject = null;
+  }
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({

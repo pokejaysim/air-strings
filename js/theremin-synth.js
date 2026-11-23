@@ -35,7 +35,11 @@ export class ThereminSynth extends AudioCore {
     this.voiceName = 'classic';
     this.sounding = false;
     this.lastFreq = 261.63;
-    this.log = []; // [{t, freq, level}] samples for debugging
+    this.tone = 0.5;
+    this.target = 0;          // last level target we scheduled (don't read gain.value back)
+    this.targetLevel = 0;
+    this.silentSince = 0;     // ctx time when the target last went to 0
+    this.last = { freq: 0, level: 0, tone: 0.5, sounding: false }; // for debugging/tests
   }
 
   async setup(ctx, input) {
@@ -65,7 +69,31 @@ export class ThereminSynth extends AudioCore {
   setVoice(name) {
     if (!VOICES[name]) return;
     this.voiceName = name;
-    if (this.ctx) this.applyVoice(name, false);
+    if (!this.ctx) return;
+    if (this.target > 0.001) {
+      // Duck for a moment so the waveform swap doesn't click.
+      const t = this.ctx.currentTime;
+      this.level.gain.setTargetAtTime(0, t, 0.008);
+      setTimeout(() => {
+        this.applyVoice(name, false);
+        const v = VOICES[name];
+        this.level.gain.setTargetAtTime(this.targetLevel * v.gain, this.ctx.currentTime, 0.02);
+        this.target = this.targetLevel * v.gain;
+      }, 35);
+    } else {
+      this.applyVoice(name, false);
+    }
+  }
+
+  /** Fade out immediately (page hidden, etc.). */
+  silence() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.level.gain.cancelScheduledValues(t);
+    this.level.gain.setTargetAtTime(0, t, 0.02);
+    this.target = 0;
+    this.sounding = false;
+    this.silentSince = t;
   }
 
   applyVoice(name, immediate) {
@@ -89,41 +117,55 @@ export class ThereminSynth extends AudioCore {
 
   updateFilter(freq, immediate) {
     const v = VOICES[this.voiceName];
-    const cutoff = Math.min(16000, v.filter + v.track * freq);
+    // Tone (0 dark .. 1 bright) from the pitch hand's other direction.
+    const toneMul = 0.45 + 1.3 * this.tone;
+    const cutoff = Math.min(16000, (v.filter + v.track * freq) * toneMul);
     const t = this.ctx.currentTime;
     if (immediate) this.filter.frequency.setValueAtTime(cutoff, t);
     else this.filter.frequency.setTargetAtTime(cutoff, t, 0.03);
   }
 
   /**
-   * Call every frame.
-   * @param {object} s { sounding, freq, level (0..1) }
-   * @param {number} glide seconds (time constant) for pitch changes
+   * Call every frame; only schedules audio changes when something changed.
+   * @param {object} s { sounding, pitchPresent, freq, level (0..1), tone (0..1) }
+   * @param {number} glide time constant (s) for pitch changes
    */
-  update({ sounding, freq, level }, glide = 0.02) {
+  update({ sounding, pitchPresent, freq, level, tone = 0.5 }, glide = 0.02) {
     if (!this.ctx || !this.running) return false;
     const t = this.ctx.currentTime;
     const v = VOICES[this.voiceName];
-    const target = sounding ? level * v.gain : 0;
-    if (sounding && freq > 0) {
-      if (!this.sounding) {
-        // Note starts: jump straight to the pitch (no swoop from the last one).
-        this.osc1.frequency.cancelScheduledValues(t);
-        this.osc2.frequency.cancelScheduledValues(t);
-        this.osc1.frequency.setValueAtTime(freq, t);
-        this.osc2.frequency.setValueAtTime(freq, t);
+    const lvl = sounding ? level : 0;
+    const target = lvl * v.gain;
+    const freqChanged = freq > 0 && Math.abs(freq - this.lastFreq) > 0.01;
+    const toneChanged = Math.abs(tone - this.tone) > 0.005;
+    const levelChanged = Math.abs(target - this.target) > 1e-4;
+    if (!freqChanged && !toneChanged && !levelChanged && sounding === this.sounding) return true;
+
+    if (pitchPresent && freq > 0 && freqChanged) {
+      // Keep gliding even while silent, so re-articulating with the volume
+      // hand doesn't jump. Only hard-set the pitch when it has been silent a while.
+      const longSilent = this.target <= 1e-4 && t - this.silentSince > 0.35;
+      if (sounding && !this.sounding && longSilent) {
+        for (const o of [this.osc1, this.osc2]) { o.frequency.cancelScheduledValues(t); o.frequency.setValueAtTime(freq, t); }
       } else {
         this.osc1.frequency.setTargetAtTime(freq, t, glide);
         this.osc2.frequency.setTargetAtTime(freq, t, glide);
       }
       this.lastFreq = freq;
-      this.updateFilter(freq, false);
     }
-    // Fast-ish attack, slightly slower release so lifting a hand fades out.
-    this.level.gain.setTargetAtTime(target, t, target > this.level.gain.value ? 0.025 : 0.08);
+    if (toneChanged || freqChanged) {
+      this.tone = tone;
+      this.updateFilter(this.lastFreq, false);
+    }
+    if (levelChanged) {
+      // Fast-ish attack, slower release so lifting a hand fades out.
+      this.level.gain.setTargetAtTime(target, t, target > this.target ? 0.025 : 0.08);
+      if (target <= 1e-4 && this.target > 1e-4) this.silentSince = t;
+      this.target = target;
+    }
+    this.targetLevel = lvl;
     this.sounding = sounding;
-    this.log.push({ t: performance.now(), freq, level: sounding ? level : 0 });
-    if (this.log.length > 120) this.log.shift();
+    this.last = { freq: this.lastFreq, level: lvl, tone: this.tone, sounding };
     return true;
   }
 

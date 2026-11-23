@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Air Strings</title>
+  <meta name="description" content="Draw guitar strings in the air with your hand and pluck them. Webcam hand tracking + Karplus-Strong synthesis.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0d14'/%3E%3Cpath d='M10 46 L54 18' stroke='%23b48cff' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M10 54 L54 30' stroke='%23ffb35c' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="mode-draw">
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="canvas"></canvas>
+
+  <!-- Toolbar -->
+  <header class="toolbar" id="toolbar" hidden>
+    <div class="brand"><span class="logo" aria-hidden="true"></span>Air Strings</div>
+    <div class="group seg" role="group" aria-label="Mode">
+      <button id="modeDraw" class="seg-btn active" title="Draw mode (M)">Draw</button>
+      <button id="modePlay" class="seg-btn" title="Play mode (M)">Play</button>
+    </div>
+    <div class="group">
+      <button id="undo" class="icon-btn" title="Undo last string (Z)">Undo</button>
+      <button id="clear" class="icon-btn" title="Clear all strings (C)">Clear</button>
+    </div>
+    <div class="group seg" role="group" aria-label="Snap to scale" title="Snap to scale">
+      <span class="label">Snap</span>
+      <button class="seg-btn" data-scale="off">Off</button>
+      <button class="seg-btn" data-scale="chromatic">Chromatic</button>
+      <button class="seg-btn active" data-scale="pentatonic">Pentatonic</button>
+    </div>
+    <label class="group volume" title="Volume">
+      <span class="label">Vol</span>
+      <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Volume">
+    </label>
+    <button id="help" class="icon-btn round" title="How to play (H)" aria-label="Help">?</button>
+  </header>
+
+  <!-- Status -->
+  <div class="status" id="status" hidden><span class="dot"></span><span id="statusText">Starting…</span></div>
+  <div class="empty" id="empty" hidden></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Start screen -->
+  <section class="overlay" id="start">
+    <div class="card">
+      <div class="hero-strings" aria-hidden="true"><i></i><i></i><i></i></div>
+      <h1>Air Strings</h1>
+      <p class="lede">Draw guitar strings in the air with your hand, then pluck them.
+        Short strings ring high, long strings ring low.</p>
+      <button id="startBtn" class="primary">Tap to start</button>
+      <p class="fine" id="startNote">Uses your webcam for hand tracking. Video never leaves your device.</p>
+      <button id="startMouse" class="link">No camera? Play with the mouse</button>
+    </div>
+  </section>
+
+  <!-- Camera error -->
+  <section class="banner" id="camError" hidden>
+    <strong>Camera unavailable.</strong> <span id="camErrorText"></span>
+    You’re in mouse mode for now.
+    <button id="retryCam" class="small">Try camera again</button>
+    <button id="dismissErr" class="small ghost" aria-label="Dismiss">✕</button>
+  </section>
+
+  <!-- First-run hint -->
+  <aside class="hint" id="hint" hidden>
+    <h2>How to play</h2>
+    <div class="hint-cols">
+      <div>
+        <h3>Draw</h3>
+        <p class="hand-only">Pinch thumb + index, drag, and let go to lay down a string.</p>
+        <p class="mouse-only">Click and drag, then release to lay down a string.</p>
+      </div>
+      <div>
+        <h3>Play</h3>
+        <p class="hand-only">Pinch a string, pull it sideways, and let go to pluck. Or swipe your fingertip fast across strings to strum.</p>
+        <p class="mouse-only">Drag a string sideways and release to pluck. Or drag fast across strings from empty space to strum.</p>
+      </div>
+      <div>
+        <h3>Pitch</h3>
+        <p>Shorter = higher, longer = lower (E2 to E5).<span class="hand-only"> Pinch a toolbar button to press it.</span></p>
+      </div>
+    </div>
+    <p class="keys"><kbd>M</kbd> mode · <kbd>Z</kbd> undo · <kbd>C</kbd> clear · <kbd>H</kbd> help</p>
+    <button id="hintOk" class="primary small">Got it</button>
+  </aside>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

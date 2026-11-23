@@ -1,104 +1,29 @@
-// Audio engine: Karplus-Strong voices (AudioWorklet, with a buffer fallback)
-// -> master volume -> small synthetic room -> limiter -> speakers.
+// Air Strings audio: Karplus-Strong voices (AudioWorklet, with a buffer
+// fallback) on top of the shared AudioCore chain.
 
-export class StringSynth {
+import { AudioCore } from './audio-core.js';
+
+export class StringSynth extends AudioCore {
   constructor() {
-    this.ctx = null;
+    super({ volume: 0.8, reverb: 0.18 });
     this.node = null;
-    this.mode = 'none';
-    this.volume = 0.8;
     this.log = []; // recent plucks, handy for debugging
-    this.silentEl = null;
     this.dropped = 0; // plucks lost while audio was paused
   }
 
-  /** True when audio was started but the browser has paused it (iOS does this a lot). */
-  get needsUnlock() {
-    return !!this.ctx && this.ctx.state !== 'running' && this.ctx.state !== 'closed';
-  }
-
-  /**
-   * Try to (re)start audio. Only works reliably inside a real user gesture
-   * (tap, click, key) on iOS; elsewhere it's a harmless no-op.
-   */
-  unlock() {
-    if (!this.ctx) return;
-    if (this.silentEl && this.silentEl.paused && !document.hidden) this.silentEl.play().catch(() => {});
-    if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {});
-  }
-
-  /** Must be called from a user gesture (autoplay rules). */
-  async start() {
-    if (this.ctx) { this.unlock(); return this.mode; }
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) throw new Error('Web Audio is not supported in this browser.');
-    // iOS: ask for "playback" audio so the ring/silent switch doesn't mute us.
-    const hasSessionApi = preferPlaybackSession();
-    const ctx = new Ctx({ latencyHint: 'interactive' });
-    this.ctx = ctx;
-    // Everything below up to the first await runs inside the user's tap.
-    if (!hasSessionApi && isIOS()) this.silentEl = startSilentLoop();
-    const resumed = ctx.resume().catch(() => {});
-    this.installUnlockListeners();
-
-    this.master = ctx.createGain();
-    this.master.gain.value = this.volume;
-
-    // Gentle body/room reverb from a generated impulse response.
-    const wet = ctx.createGain();
-    wet.gain.value = 0.18;
-    const verb = ctx.createConvolver();
-    verb.buffer = makeImpulse(ctx, 1.6);
-    const dry = ctx.createGain();
-    dry.gain.value = 1;
-
-    // Brick-wall-ish limiter so many strings at once don't clip.
-    const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -8;
-    limiter.knee.value = 4;
-    limiter.ratio.value = 20;
-    limiter.attack.value = 0.002;
-    limiter.release.value = 0.2;
-
-    this.master.connect(dry).connect(limiter);
-    this.master.connect(verb).connect(wet).connect(limiter);
-    limiter.connect(ctx.destination);
-    this.input = this.master;
-
+  async setup(ctx, input) {
     try {
       if (!ctx.audioWorklet) throw new Error('no AudioWorklet');
       await ctx.audioWorklet.addModule(new URL('./ks-worklet.js', import.meta.url));
       this.node = new AudioWorkletNode(ctx, 'karplus-strong', {
         numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
       });
-      this.node.connect(this.input);
-      this.mode = 'worklet';
+      this.node.connect(input);
+      return 'worklet';
     } catch (err) {
       console.warn('AudioWorklet unavailable, using buffer synthesis:', err);
-      this.mode = 'buffer';
+      return 'buffer';
     }
-    // Don't block on resume(): on iOS it can stay pending for as long as audio
-    // is interrupted (e.g. while the camera permission prompt is showing).
-    await Promise.race([resumed, new Promise((r) => setTimeout(r, 300))]);
-    return this.mode;
-  }
-
-  installUnlockListeners() {
-    const unlock = () => this.unlock();
-    // iOS counts touchend/click (not touchstart) as a user gesture.
-    for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) {
-      window.addEventListener(type, unlock, { capture: true, passive: true });
-    }
-    window.addEventListener('pageshow', unlock);
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) this.silentEl?.pause();
-      else this.unlock();
-    });
-  }
-
-  setVolume(v) {
-    this.volume = v;
-    if (this.master) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
   }
 
   /**
@@ -191,56 +116,3 @@ export function renderKarplusStrong(sr, { freq, amp, position, brightness }, sec
   };
 }
 
-function isIOS() {
-  const ua = navigator.userAgent || '';
-  return /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-}
-
-/** Audio Session API (Safari 16.4+): treat us like a music app, not UI sounds. */
-function preferPlaybackSession() {
-  try {
-    if (navigator.audioSession) {
-      navigator.audioSession.type = 'playback';
-      return true;
-    }
-  } catch { /* not supported */ }
-  return false;
-}
-
-/**
- * Older iOS: playing a (silent) HTML media element moves the page into the
- * "playback" audio category, so Web Audio is heard even on silent mode.
- * Must be started inside a user gesture.
- */
-function startSilentLoop() {
-  const rate = 8000, n = rate / 4; // 0.25 s of 16-bit mono silence
-  const buf = new ArrayBuffer(44 + n * 2);
-  const v = new DataView(buf);
-  const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
-  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
-  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true);
-  v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 2, true);
-  const el = document.createElement('audio');
-  el.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
-  el.loop = true;
-  el.preload = 'auto';
-  el.setAttribute('playsinline', '');
-  el.setAttribute('x-webkit-airplay', 'deny');
-  el.disableRemotePlayback = true;
-  el.play().catch(() => {});
-  return el;
-}
-
-function makeImpulse(ctx, seconds) {
-  const len = Math.floor(ctx.sampleRate * seconds);
-  const ir = ctx.createBuffer(2, len, ctx.sampleRate);
-  for (let c = 0; c < 2; c++) {
-    const d = ir.getChannelData(c);
-    for (let i = 0; i < len; i++) {
-      const t = i / len;
-      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3.2) * (i < 40 ? i / 40 : 1);
-    }
-  }
-  return ir;
-}

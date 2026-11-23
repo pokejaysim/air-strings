@@ -147,7 +147,7 @@ export class PointerGestures {
     const on = (type, fn) => el.addEventListener(type, fn, { passive: false });
     on('pointerdown', (e) => {
       if (e.button !== undefined && e.button !== 0) return;
-      el.setPointerCapture?.(e.pointerId);
+      try { el.setPointerCapture?.(e.pointerId); } catch { /* not capturable; fine */ }
       const prev = this.state.get(e.pointerId);
       const s = { x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY, down: true, started: true, ended: false, hidden: false };
       this.state.set(e.pointerId, s);

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Air Theremin</title>
+  <meta name="description" content="Play a theremin with your hands in front of your webcam. One hand sets the pitch, the other the volume.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0d14'/%3E%3Cpath d='M8 40 C16 18, 24 18, 32 32 S48 46, 56 24' stroke='%2378e0ff' stroke-width='4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="theremin.css">
+</head>
+<body class="theremin">
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="canvas"></canvas>
+
+  <header class="toolbar" id="toolbar" hidden>
+    <a class="brand" href="./" title="Back to Air Strings"><span class="logo" aria-hidden="true"></span>Air Theremin</a>
+    <div class="group">
+      <button id="assistBtn" class="cycle-btn" title="Pitch assist: Off / Gentle / Snap (A)"><span class="k">Assist</span><span class="v" id="assistVal">Gentle</span></button>
+      <button id="voiceBtn" class="cycle-btn" title="Voice: Classic / Soft / Sci-fi (V)"><span class="k">Voice</span><span class="v" id="voiceVal">Classic</span></button>
+      <button id="scaleBtn" class="cycle-btn" title="Scale (S)"><span class="k">Scale</span><span class="v" id="scaleVal">Pentatonic</span></button>
+    </div>
+    <label class="group volume" title="Master volume">
+      <span class="label">Vol</span>
+      <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Master volume">
+    </label>
+    <a class="icon-btn" href="./" title="Switch to Air Strings">Strings</a>
+    <button id="help" class="icon-btn round" title="How to play (H)" aria-label="Help">?</button>
+  </header>
+
+  <div class="status" id="status" hidden><span class="dot"></span><span id="statusText">Starting…</span></div>
+  <div class="coach" id="coach" hidden><span class="step" id="coachStep"></span><span id="coachText"></span></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <button class="sound-banner" id="soundBanner" hidden>
+    <span class="spk" aria-hidden="true"></span>Sound paused. Tap to turn it on.
+  </button>
+
+  <section class="overlay" id="start">
+    <div class="card">
+      <div class="hero-wave" aria-hidden="true">
+        <svg viewBox="0 0 240 70"><path d="M4 35 C 34 0, 54 0, 84 35 S 134 70, 164 35 S 214 0, 236 35" /></svg>
+      </div>
+      <h1>Air Theremin</h1>
+      <p class="lede">Play music without touching anything. One hand sets the pitch, the other sets the volume.</p>
+      <button id="startBtn" class="primary">Tap to start</button>
+      <p class="fine" id="startNote">Uses your webcam for hand tracking. Video never leaves your device. Prop your phone up and step back so both hands fit.</p>
+      <button id="startMouse" class="link">No camera? Play with the mouse or touch</button>
+      <p class="fine"><a href="./" class="link">← Back to Air Strings</a></p>
+    </div>
+  </section>
+
+  <section class="banner" id="camError" hidden>
+    <strong>Camera unavailable.</strong> <span id="camErrorText"></span>
+    You’re in mouse/touch mode for now.
+    <button id="retryCam" class="small">Try camera again</button>
+    <button id="dismissErr" class="small ghost" aria-label="Dismiss">✕</button>
+  </section>
+
+  <aside class="hint" id="hint" hidden>
+    <h2>How to play</h2>
+    <div class="hint-cols">
+      <div>
+        <h3>Pitch hand</h3>
+        <p class="hand-only">Hold one hand up on the <b>right</b> side. Move it <span class="axis-word">left–right</span> to change the note. Wobble it for vibrato.</p>
+        <p class="mouse-only">Press and drag on the <b>right</b> side. Move <span class="axis-word">left–right</span> to change the note.</p>
+      </div>
+      <div>
+        <h3>Volume hand</h3>
+        <p class="hand-only">Your other hand on the <b>left</b>: raise it for louder, drop it to the bottom for silence. With one hand up, you play at a steady volume.</p>
+        <p class="mouse-only">On a touchscreen, a second finger on the <b>left</b> sets the volume: higher is louder.</p>
+      </div>
+      <div>
+        <h3>Assist</h3>
+        <p><b>Off</b> is a real theremin (hard!). <b>Gentle</b> pulls you toward the scale. <b>Snap</b> always lands on a note.</p>
+      </div>
+    </div>
+    <p class="hint-note"><span class="hand-only">Pinch a toolbar button to press it. </span>Range: C3 to C5.</p>
+    <p class="keys"><kbd>A</kbd> assist · <kbd>V</kbd> voice · <kbd>S</kbd> scale · <kbd>H</kbd> help</p>
+    <button id="hintOk" class="primary small">Got it</button>
+  </aside>
+
+  <script type="module" src="js/theremin-main.js"></script>
+</body>
+</html>

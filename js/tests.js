@@ -5,6 +5,7 @@ import {
 import { StringBank } from './strings.js';
 import { Interaction, TUNING } from './interaction.js';
 import { HandGestures, videoToScreen, PINCH_ON, PINCH_OFF } from './gestures.js';
+import * as TH from './theremin-map.js';
 
 const results = [];
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
@@ -311,6 +312,95 @@ test('Hand that leaves the frame emits a final lost pointer', () => {
   const out = g.update([], video, 1280, 720, 500);
   assert(out.length === 1 && out[0].lost && out[0].pinchEnded, JSON.stringify(out[0]));
   assert(g.update([], video, 1280, 720, 600).length === 0, 'hand should be forgotten');
+});
+
+// ---- Theremin ----
+test('Theremin: pitch axis spans C3..C5 with dead margins at the ends', () => {
+  assert(TH.axisToMidi(0) === 48 && TH.axisToMidi(TH.AXIS_EDGE) === 48, 'low end');
+  assert(TH.axisToMidi(1) === 72 && TH.axisToMidi(1 - TH.AXIS_EDGE) === 72, 'high end');
+  assert(near(TH.axisToMidi(0.5), 60), 'middle is C4');
+  for (const m of [48, 55.5, 60, 71]) assert(near(TH.axisToMidi(TH.midiToAxis(m)), m), `round trip ${m}`);
+});
+test('Theremin: scale notes', () => {
+  assert(TH.scaleNotes('chromatic').length === 25, 'chromatic 2 octaves');
+  assert(TH.scaleNotes('pentatonic').join() === '48,50,52,55,57,60,62,64,67,69,72', TH.scaleNotes('pentatonic').join());
+  assert(TH.scaleNotes('major').every((n) => [0, 2, 4, 5, 7, 9, 11].includes(n % 12)), 'major');
+  assert(TH.scaleNotes('minor').every((n) => [0, 3, 5, 7, 10].includes(n % 12)), 'minor pent');
+});
+test('Theremin: assist Off leaves pitch untouched', () => {
+  const notes = TH.scaleNotes('pentatonic');
+  for (const m of [49.3, 58.7, 70.1]) assert(TH.applyAssist(m, 'off', notes) === m, String(m));
+});
+test('Theremin: assist Snap always lands on a scale note', () => {
+  const notes = TH.scaleNotes('major');
+  for (let m = 48; m <= 72; m += 0.137) assert(notes.includes(TH.applyAssist(m, 'snap', notes)), `${m}`);
+});
+test('Theremin: assist Gentle is continuous, monotonic and sticky near notes', () => {
+  const notes = TH.scaleNotes('pentatonic');
+  let prev = -Infinity, maxJump = 0;
+  for (let m = 48; m <= 72; m += 0.005) {
+    const g = TH.applyAssist(m, 'gentle', notes);
+    assert(g >= prev - 1e-9, `went backwards at ${m}`);
+    if (prev > -Infinity) maxJump = Math.max(maxJump, g - prev);
+    prev = g;
+  }
+  assert(maxJump < 0.05, `jumpy: ${maxJump}`);
+  for (const n of notes) assert(TH.applyAssist(n, 'gentle', notes) === n || near(TH.applyAssist(n, 'gentle', notes), n), `note ${n} moves`);
+  // 0.4 semitone off a note is pulled most of the way back
+  const pulled = TH.applyAssist(60.4, 'gentle', notes);
+  assert(pulled - 60 < 0.15, `not sticky: ${pulled}`);
+});
+test('Theremin: volume has a silent floor and reaches full at the top', () => {
+  assert(TH.volumeFromHeight(0) === 0 && TH.volumeFromHeight(TH.VOLUME_FLOOR) === 0, 'floor');
+  assert(TH.volumeFromHeight(1) === 1, 'top');
+  let prev = 0;
+  for (let h = 0; h <= 1; h += 0.01) { const v = TH.volumeFromHeight(h); assert(v >= prev, 'monotonic'); prev = v; }
+});
+test('Theremin: layout follows orientation', () => {
+  const land = TH.layoutFor(1200, 700), port = TH.layoutFor(390, 844);
+  assert(land.axis === 'x' && land.pitch.x > land.volume.x, 'landscape: pitch on the right, left-right axis');
+  assert(port.axis === 'y' && port.split === 195, 'portrait: halves, up-down axis');
+  // Portrait: higher on screen = higher pitch
+  assert(TH.pitchAxisPos(300, 100, port) > TH.pitchAxisPos(300, 700, port), 'portrait up is higher');
+  // Landscape: further right = higher pitch
+  assert(TH.pitchAxisPos(1100, 300, land) > TH.pitchAxisPos(600, 300, land), 'landscape right is higher');
+});
+test('Theremin: two hands -> right one is pitch, left one is volume', () => {
+  const L = TH.layoutFor(1200, 700);
+  const r = TH.assignRoles([{ id: 'a', x: 300, y: 200 }, { id: 'b', x: 900, y: 400 }], L);
+  assert(r.pitch.id === 'b' && r.volume.id === 'a', JSON.stringify(r));
+});
+test('Theremin: one hand plays at steady volume; on the volume side alone it is silent', () => {
+  const L = TH.layoutFor(1200, 700);
+  const one = TH.readTheremin(TH.assignRoles([{ id: 'a', x: 900, y: 300 }], L), L);
+  assert(one.sounding && one.level === TH.ONE_HAND_LEVEL, JSON.stringify(one));
+  const vol = TH.readTheremin(TH.assignRoles([{ id: 'a', x: 200, y: 100 }], L), L);
+  assert(!vol.sounding && vol.volumeOnly, JSON.stringify(vol));
+});
+test('Theremin: volume hand at the bottom silences, at the top is loud', () => {
+  const L = TH.layoutFor(1200, 700);
+  const pts = (vy) => [{ id: 'v', x: 200, y: vy }, { id: 'p', x: 900, y: 300 }];
+  assert(!TH.readTheremin(TH.assignRoles(pts(695), L), L).sounding, 'bottom should be silent');
+  assert(TH.readTheremin(TH.assignRoles(pts(5), L), L).level > 0.95, 'top should be loud');
+});
+test('Theremin: a lone hand near the zone border does not flicker between roles', () => {
+  const L = TH.layoutFor(1200, 700);
+  let prev = {};
+  const roleAt = (x) => {
+    const r = TH.assignRoles([{ id: 'a', x, y: 300 }], L, prev);
+    prev = { pitchId: r.pitch?.id, volumeId: r.volume?.id };
+    return r.pitch ? 'pitch' : 'volume';
+  };
+  assert(roleAt(L.split + 30) === 'pitch', 'start in pitch');
+  assert(roleAt(L.split - 10) === 'pitch', 'small step over the border keeps pitch');
+  assert(roleAt(L.split - 80) === 'volume', 'clearly over the border switches');
+  assert(roleAt(L.split + 10) === 'volume', 'and stays volume near the border');
+});
+test('Theremin: reading reports note name and frequency', () => {
+  const L = TH.layoutFor(1200, 700);
+  const x = TH.axisToScreen(TH.midiToAxis(57), L); // A3
+  const r = TH.readTheremin(TH.assignRoles([{ id: 'a', x, y: 300 }], L), L, { assist: 'snap', scale: 'pentatonic' });
+  assert(r.note === 'A3' && near(r.freq, 220, 1e-6), `${r.note} ${r.freq}`);
 });
 
 // ---- render ----

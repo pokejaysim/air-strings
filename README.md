@@ -95,15 +95,37 @@ ring when it would do something.
 |---|---|---|---|
 | ✊ Fist | 0.3 s | Mutes every ringing string | Silences it while you hold the fist |
 | 👍 Thumbs up | 0.8 s | In a lesson: presses the big button on the result card, or picks the *Next up* song in the song list | Same |
-| 👎 Thumbs down | 0.8 s | Removes the last string (in a lesson, starts the song again) | Starts a lesson song again |
+| 👎 Thumbs down | 0.8 s | Removes the last string, or brings back strings you just cleared (in a lesson, starts the song again) | Starts a lesson song again |
 | ✌️ Victory | 1 s | Switches to the theremin | Switches to Air Strings |
 | 🤟 I love you | 0.8 s | Confetti | Confetti |
+| 🤘 Rock horns | 0.7 s | Next Snap scale (free play) | Next voice (free play) |
+| 🤙 Call me | 0.7 s | Face control on/off | Face control on/off |
+| Three fingers up | 0.9 s | In a lesson: Listen / stop | In a lesson: Listen / stop. Free play: next range |
+| 👋 Wave | 3 swings | Free play: clears the strings. In a lesson: back to free play | In a lesson: back to free play |
+| 👍👍 Both thumbs up | 0.6 s | In a lesson: play in time (builds any missing strings first) | In a lesson: step 2, play in time |
+| ✊✊ Both fists | 0.5 s | Free play: clears the strings. In a lesson: stops Listen | Stops Listen |
 
 Open palm and pointing up are left out on purpose: they are how you hold your
-hand to play. A fist never starts a pinch: it only counts as a fist when the
-model says so *and* the index fingertip is curled into its knuckle, so a pinch
-with the other fingers curled still draws. **Hand signs** can be turned off
-in the help panel.
+hand to play. Google's model only knows seven shapes, so rock horns, call me
+and three fingers are read from finger positions: a finger is *up* when its
+tip is clearly farther from the wrist than its middle joint, *down* when
+clearly nearer, and anything in between makes no sign. A wave is an open palm
+moving side to side: three changes of direction, each swing at least a third
+of a hand wide, without pausing. One long wave counts once.
+
+Safety rules:
+
+- A fist never starts a pinch: it only counts as a fist when the model says so
+  *and* the index fingertip is curled into its knuckle, so a pinch with the
+  other fingers curled still draws.
+- A wave across strings strums them, so it doesn't count as a goodbye: wave
+  beside or above the strings.
+- Clearing strings (Clear, a wave or both fists) can be undone for
+  8 seconds with **Undo**, <kbd>Z</kbd> or 👎.
+- On the theremin, finger signs and waves only count from a hand that isn't
+  playing a note (use your volume hand).
+
+**Hand signs** can be turned off in the help panel.
 
 ## Face control (both instruments)
 

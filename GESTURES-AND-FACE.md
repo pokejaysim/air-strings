@@ -13,6 +13,42 @@ for about ten minutes.
 | 3 | **Face control on the theremin.** The 🙂 button (or F) learns your resting face for a second. Then mouth open gives a brighter "wah", lips in an "oo" a darker hollow sound, and raised eyebrows an octave up (free play only). A little face badge mirrors yours. | `e80310e` |
 | 4 | **Head tilt for vibrato** on the theremin, and **Face control for Air Strings**: mouth open lets notes ring up to 2.5× longer, eyebrows play an octave up (free play only). | `c063ae4` |
 
+## Update: six more hand signs (`b62ac74`)
+
+| Sign | Air Strings | Air Theremin |
+|---|---|---|
+| 🤘 Rock horns | Next Snap scale (free play) | Next voice (free play) |
+| 🤙 Call me | Face on/off | Face on/off |
+| Three fingers up | Listen / stop (lesson) | Listen / stop (lesson); next range (free play) |
+| 👋 Wave | Clears the strings (free play); back to free play (lesson) | Back to free play (lesson) |
+| 👍👍 Both thumbs up | Play in time (lesson) | Step 2, play in time (lesson) |
+| ✊✊ Both fists | Clears the strings (free play); stops Listen (lesson) | Stops Listen |
+
+- **How they're detected:** Google's model only knows seven shapes, and the
+  two we don't use (open palm, pointing up) are how you play. So rock horns,
+  call me and three fingers are read from finger positions. On Google's test
+  photos, a raised fingertip sits at least 1.3× farther from the wrist than its
+  middle joint, and a curled one at most 0.76×. The app calls a finger up
+  above 1.15 and down below 0.95, and makes no sign in between.
+- **Wave:** an open palm moving side to side, with three changes of direction
+  and each swing at least a third of a hand wide. One long wave counts once.
+- **Safety:**
+  - Clearing strings can now be undone for 8 seconds (Undo, Z or 👎). This
+    also covers the Clear button.
+  - A wave that strums strings doesn't count, so wave beside or above them.
+  - On the theremin, the new finger signs and waves only count from a hand
+    that isn't playing a note.
+- **Checked:** 116/116 tests pass. In the app, I folded fingers in the hand
+  model's output from a real open-palm photo to make rock horns, call me and
+  three fingers. I moved the photo side to side for the wave and used two
+  photos side by side for the two-hand signs. Every action fired, including
+  undo after a wave, the strum guard, and the playing-hand rule on the
+  theremin.
+- **Please try with real hands:**
+  - Does 🤘 read reliably? A loose thumb may make it read as 🤟.
+  - Is three fingers comfortable?
+  - Does a real wave goodbye register, and does fast strumming ever count as a wave?
+
 ## How each was checked
 
 - **Tests:** 110/110 pass, including 17 new ones covering hand-sign holds, flicker, cooldown, fist against pinch, face calibration, eyebrow on/off, tilt, the wah filter and the slow-device auto-off.

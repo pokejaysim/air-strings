@@ -274,6 +274,7 @@ body.lesson .toast.show { transform: translate(-50%, 0); }
 .song-picker .info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .song-picker .title { font-weight: 700; font-size: 15px; color: #eef1f8; }
 .song-picker .teaches { font-size: 12px; color: var(--muted); }
+.song-picker .title .short { display: none; }
 .song-picker .tag { font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
   color: #0b1a12; background: #ffd76a; border-radius: 6px; padding: 1px 5px; margin-left: 4px; vertical-align: 2px; }
 .song-picker .tag.now { background: #7dffb0; }
@@ -283,8 +284,12 @@ body.lesson .toast.show { transform: translate(-50%, 0); }
 .song-picker .st { color: #ffd76a; font-size: 13px; letter-spacing: 1px; }
 .song-picker .st .off { color: rgba(255,255,255,0.18); }
 @media (max-width: 430px) {
-  .song-picker .songs { grid-template-columns: 1fr; }
-  .song-picker .song { gap: 8px; padding: 8px 10px; }
+  .song-picker .songs { grid-template-columns: 1fr; gap: 6px; }
+  .song-picker .song { gap: 8px; padding: 6px 10px; min-height: 0; }
+  .song-picker .title { white-space: nowrap; }
+  .song-picker .title .full { display: none; }
+  .song-picker .title .short { display: inline; }
+  .song-picker .teaches { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .song-picker .lbl { font-size: 9px; letter-spacing: 0.2px; }
 }
 /* Short screens (a phone on its side): one line per song. */
@@ -292,6 +297,15 @@ body.lesson .toast.show { transform: translate(-50%, 0); }
   .song-picker { padding: 6px; }
   .song-picker .panel { padding: 10px 12px; }
   .song-picker header { margin-bottom: 8px; }
-  .song-picker .song { min-height: 44px; padding: 6px 10px; }
-  .song-picker .teaches { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .song-picker h2 { font-size: 15px; }
+  .song-picker .close { padding: 6px 12px; }
+  .song-picker .songs { gap: 6px; }
+  .song-picker .song { min-height: 0; padding: 4px 10px; }
+  .song-picker .num { width: 26px; height: 26px; font-size: 13px; }
+  .song-picker .title { font-size: 14px; white-space: nowrap; }
+  .song-picker .title .full { display: none; }
+  .song-picker .title .short { display: inline; }
+  .song-picker .teaches { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .song-picker .scores { gap: 0; }
+  .song-picker .st { font-size: 11px; }
 }

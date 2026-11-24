@@ -716,6 +716,17 @@ test('String lessons (play): one strum across E, D, C plays three notes', () => 
   while (!clean.done) clean.pluck(clean.target.midi, (t += 300));
   assert(clean.result().stars === 3, 'a clean run earns three stars');
 });
+test('Songs: ten or more, unique, each says what it teaches, and every note fits the six-string harp', () => {
+  assert(SONGS.length >= 10, `${SONGS.length} songs`);
+  assert(new Set(SONGS.map((d) => d.id)).size === SONGS.length, 'duplicate song id');
+  for (const def of SONGS) {
+    const s = buildSong(def);
+    assert(def.teaches && def.short && def.title, `${def.id}: missing text`);
+    assert(s.notes.length >= 15 && s.totalBeats >= 12, `${def.id}: only ${s.notes.length} notes`);
+    assert(s.notes.every((n) => n.beats > 0 && [60, 62, 64, 65, 67, 69].includes(n.midi)), `${def.id}: a note off the harp`);
+  }
+  assert(SONGS[0].id === 'buns', 'the easiest song comes first');
+});
 test('Song picker suggests the first song without a star, else stays put', () => {
   const sc = (...st) => st.map((n) => [{ label: 'a', stars: n }, { label: 'b', stars: 0 }]);
   assert(suggestedSong(sc(0, 0, 0), 2) === 0, 'nothing played: song 1');
@@ -723,7 +734,7 @@ test('Song picker suggests the first song without a star, else stays put', () =>
   assert(suggestedSong(sc(3, 2, 1), 1) === 1, 'all starred: the current song');
 });
 test('Listen first: the demo walks through every note in order, on the beat, and then ends', () => {
-  for (const id of ['buns', 'mary', 'sheep', 'twinkle', 'ode']) {
+  for (const id of SONGS.map((d) => d.id)) {
     const s = song(id);
     assert(noteAt(s, -0.5) === -1 && noteAt(s, 0) === 0 && noteAt(s, s.totalBeats) === -1, `${id}: edges`);
     const seen = [];
@@ -749,7 +760,7 @@ test('String lessons (in time): nothing moves until the run starts, then a 4-bea
 });
 test('String lessons (in time): plucks on the beat are perfect at every speed', () => {
   for (const { bpm } of Object.values(STRING_TEMPOS)) {
-    for (const id of ['buns', 'mary', 'sheep', 'twinkle', 'ode']) {
+    for (const id of SONGS.map((d) => d.id)) {
       const s = song(id), run = new StringTimedRun(s, { bpm });
       run.start(0);
       s.notes.forEach((n, i) => run.pluck(n.midi, run.timeOf(i) + 40));

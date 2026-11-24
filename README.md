@@ -46,8 +46,8 @@ full volume, just like a real one.
 Press **Learn** (or tap the song name in a lesson) to open the song list: every
 song with what it teaches and the stars you've earned, at your own pace and in
 time. The first song without a star is marked *Next up*. Then you're taught the
-tune on a small harp you build yourself (the
-same five songs as the theremin, easiest first).
+tune on a small harp you build yourself (the same ten songs as the theremin,
+easiest first; every one fits on six strings, C to A).
 
 1. **Step 1 · Build.** Each string the song needs has a dashed outline of
    exactly the right length for its note. Pinch the glowing dot, stretch to
@@ -107,9 +107,9 @@ hand reaching into the toolbar stops playing.
 
 Press **Learn** (or tap the song name in a lesson) to pick from the song list,
 which shows what each song teaches and your best stars. Public-domain songs,
-easiest first:
-Hot Cross Buns, Mary Had a Little Lamb, Baa Baa Black Sheep, Twinkle Twinkle
-Little Star and Ode to Joy.
+easiest first: Hot Cross Buns, Mary Had a Little Lamb, When the Saints Go
+Marching In, Jingle Bells, London Bridge, Lightly Row, Baa Baa Black Sheep,
+Twinkle Twinkle Little Star, Old MacDonald Had a Farm and Ode to Joy.
 
 1. **Step 1 · Learn.** The song's notes appear as a ribbon of blocks. The song
    only moves while you are on the right note, so take as long as you need.

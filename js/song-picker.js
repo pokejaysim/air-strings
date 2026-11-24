@@ -46,7 +46,7 @@ export function createSongPicker({ songs, scores, current, onPick, onOpen = () =
             <button class="song${i === cur ? ' current' : ''}" data-song="${i}">
               <span class="num">${i + 1}</span>
               <span class="info">
-                <span class="title">${esc(s.title)}${i === next && i !== cur ? ' <em class="tag">Next up</em>' : ''}${i === cur ? ' <em class="tag now">Now</em>' : ''}</span>
+                <span class="title"><span class="full">${esc(s.title)}</span><span class="short">${esc(s.short || s.title)}</span>${i === next && i !== cur ? ' <em class="tag">Next up</em>' : ''}${i === cur ? ' <em class="tag now">Now</em>' : ''}</span>
                 <span class="teaches">${esc(s.teaches || '')}</span>
               </span>
               <span class="scores">${all[i].map((r) => `<span class="score">${r.label ? `<span class="lbl">${esc(r.label)}</span>` : ''}<span class="st">${stars(r.stars)}</span></span>`).join('')}</span>

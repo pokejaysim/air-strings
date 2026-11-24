@@ -17,7 +17,8 @@ export function noteToMidi(name) {
 }
 
 // Each phrase is [words, notes]. A note is NAME or NAME:BEATS (default 1 beat).
-// All tunes are traditional / public domain and written in C major.
+// All tunes are traditional / public domain, use only C D E F G A (C4–A4,
+// so they fit the Air Strings harp), and are ordered from easiest to hardest.
 export const SONGS = [
   {
     id: 'buns', title: 'Hot Cross Buns', short: 'Hot Cross Buns',
@@ -38,6 +39,56 @@ export const SONGS = [
       ['little lamb.', 'E4 G4 G4:2'],
       ['Mary had a little lamb, its', 'E4 D4 C4 D4 E4 E4 E4 E4'],
       ['fleece was white as snow.', 'D4 D4 E4 D4 C4:2'],
+    ],
+  },
+  {
+    id: 'saints', title: 'When the Saints Go Marching In', short: 'The Saints',
+    teaches: 'a skip from C up to E, then long notes to hold and count',
+    phrases: [
+      ['Oh when the saints', 'C4 E4 F4 G4:4'],
+      ['go marching in,', 'C4 E4 F4 G4:4'],
+      ['oh when the saints go marching in,', 'C4 E4 F4 G4:2 E4:2 C4:2 E4:2 D4:4'],
+      ['oh Lord, I want to be in that number,', 'E4 E4 D4 C4:3 C4 E4 G4:2 G4 F4:3'],
+      ['when the saints go marching in.', 'E4 F4 G4:2 E4:2 C4:2 D4:2 C4:4'],
+    ],
+  },
+  {
+    id: 'jingle', title: 'Jingle Bells', short: 'Jingle Bells',
+    teaches: 'lots of repeated Es, and a drop from G down to C',
+    phrases: [
+      ['Jingle bells, jingle bells,', 'E4 E4 E4:2 E4 E4 E4:2'],
+      ['jingle all the way!', 'E4 G4 C4:1.5 D4:.5 E4:4'],
+      ['Oh what fun it is to ride', 'F4 F4 F4:1.5 F4:.5 F4 E4 E4 E4:.5 E4:.5'],
+      ['in a one-horse open sleigh, hey!', 'E4 D4 D4 E4 D4:2 G4:2'],
+      ['Jingle bells, jingle bells,', 'E4 E4 E4:2 E4 E4 E4:2'],
+      ['jingle all the way!', 'E4 G4 C4:1.5 D4:.5 E4:4'],
+      ['Oh what fun it is to ride', 'F4 F4 F4:1.5 F4:.5 F4 E4 E4 E4:.5 E4:.5'],
+      ['in a one-horse open sleigh!', 'G4 G4 F4 D4 C4:4'],
+    ],
+  },
+  {
+    id: 'london', title: 'London Bridge', short: 'London Bridge',
+    teaches: 'a quick short note on top (A), then little steps down',
+    phrases: [
+      ['London Bridge is falling down,', 'G4:1.5 A4:.5 G4 F4 E4 F4 G4:2'],
+      ['falling down,', 'D4 E4 F4:2'],
+      ['falling down.', 'E4 F4 G4:2'],
+      ['London Bridge is falling down,', 'G4:1.5 A4:.5 G4 F4 E4 F4 G4:2'],
+      ['my fair lady.', 'D4:2 G4:2 E4 C4:3'],
+    ],
+  },
+  {
+    id: 'lightly', title: 'Lightly Row', short: 'Lightly Row',
+    teaches: 'skipping down in thirds: G to E, F to D',
+    phrases: [
+      ['Lightly row, lightly row,', 'G4 E4 E4:2 F4 D4 D4:2'],
+      ['o’er the glassy waves we go;', 'C4 D4 E4 F4 G4 G4 G4:2'],
+      ['smoothly glide, smoothly glide,', 'G4 E4 E4:2 F4 D4 D4:2'],
+      ['on the silent tide.', 'C4 E4 G4 G4 C4:4'],
+      ['Let the winds and waters be', 'D4 D4 D4 D4 D4 E4 F4:2'],
+      ['mingled with our melody;', 'E4 E4 E4 E4 E4 F4 G4:2'],
+      ['sing and float, sing and float,', 'G4 E4 E4:2 F4 D4 D4:2'],
+      ['in our little boat.', 'C4 E4 G4 G4 C4:4'],
     ],
   },
   {
@@ -64,6 +115,20 @@ export const SONGS = [
       ['like a diamond in the sky.', 'G4 G4 F4 F4 E4 E4 D4:2'],
       ['Twinkle, twinkle, little star,', 'C4 C4 G4 G4 A4 A4 G4:2'],
       ['how I wonder what you are.', 'F4 F4 E4 E4 D4 D4 C4:2'],
+    ],
+  },
+  {
+    id: 'macdonald', title: 'Old MacDonald Had a Farm', short: 'Old MacDonald',
+    teaches: 'leaps between C and F, and quick runs of the same note',
+    phrases: [
+      ['Old MacDonald had a farm,', 'F4 F4 F4 C4 D4 D4 C4:2'],
+      ['E-I-E-I-O!', 'A4 A4 G4 G4 F4:3'],
+      ['And on that farm he had a cow,', 'C4 F4 F4 F4 C4 D4 D4 C4:2'],
+      ['E-I-E-I-O!', 'A4 A4 G4 G4 F4:3'],
+      ['With a moo moo here and a moo moo there,', 'C4:.5 C4:.5 F4 F4 F4 C4:.5 C4:.5 F4 F4 F4:2'],
+      ['here a moo, there a moo, everywhere a moo moo,', 'F4:.5 F4:.5 F4 F4:.5 F4:.5 F4 F4:.5 F4:.5 F4:.5 F4:.5 F4 F4'],
+      ['Old MacDonald had a farm,', 'F4 F4 F4 C4 D4 D4 C4:2'],
+      ['E-I-E-I-O!', 'A4 A4 G4 G4 F4:4'],
     ],
   },
   {

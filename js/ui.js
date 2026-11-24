@@ -61,6 +61,7 @@ export class UI {
     if (!coach) return;
     $('coachStep').textContent = coach.step;
     $('coachText').textContent = coach.text;
+    if (coach.quiet) return; // lesson text changes often: don't re-animate
     // Restart the entrance animation for each new step.
     const el = $('coach'); el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
   }

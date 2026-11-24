@@ -8,6 +8,7 @@ import { HandGestures, videoToScreen, PINCH_ON, PINCH_OFF } from './gestures.js'
 import * as TH from './theremin-map.js';
 import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GATE_SEC, COUNT_IN_BEATS } from './lessons.js';
 import { ribbonGeometry } from './lesson-view.js';
+import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun } from './string-lessons.js';
 
 const results = [];
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
@@ -627,6 +628,124 @@ test('Lessons: the ribbon shows a few beats ahead in both orientations', () => {
     if (L.landscape) assert(g.nowC > p.y && g.nowC < p.y + p.h, 'now-line inside the zone');
     else assert(g.nowC >= p.x && g.nowC < p.x + p.w, 'now-line inside the zone');
   }
+});
+
+// ---- string lessons ----
+test('String lessons: a string of the right length plays its note', () => {
+  for (const m of HARP_NOTES) {
+    const f = pitchForLength(lengthForMidi(m), 'off').freq;
+    assert(near(f, midiToFreq(m), 1e-6), `note ${m}: ${f}`);
+    assert(whiteNoteForLength(lengthForMidi(m)) === m, `label for ${m}`);
+  }
+  assert(near(lengthForMidi(72), lengthForMidi(60) / 2), 'half the length is an octave up');
+  for (let L = 0.1; L < 0.3; L += 0.003) {
+    assert(![1, 3, 6, 8, 10].includes(whiteNoteForLength(L) % 12), `length ${L} labelled as a sharp`);
+  }
+});
+test('String lessons: every song fits on the six harp strings', () => {
+  for (const def of SONGS) for (const n of buildSong(def).notes) assert(HARP_NOTES.includes(n.midi), `${def.id} needs ${n.name}`);
+});
+test('String lessons: the harp fits the screen, longest string lowest', () => {
+  for (const [W, H] of [[1180, 720], [844, 390], [390, 844], [800, 820]]) {
+    const top = 130, bottom = 124, slots = harpSlots(W, H, { top, bottom });
+    assert(slots.length === 6, 'six slots');
+    const tol = Math.max(30, 0.04 * Math.hypot(W, H));
+    for (let i = 0; i < slots.length; i++) {
+      const s = slots[i];
+      for (const [x, y] of [[s.ax, s.ay], [s.bx, s.by]]) {
+        assert(x >= 20 && x <= W - 20 && y >= top - 1 && y <= H - bottom + 1, `${W}x${H}: ${s.name} off screen (${x.toFixed(0)}, ${y.toFixed(0)})`);
+      }
+      if (i) {
+        const p = slots[i - 1];
+        assert(s.len < p.len, `${W}x${H}: ${s.name} should be shorter than ${p.name}`);
+        // Lengths keep the true pitch ratio even when the harp is shrunk to fit.
+        assert(near(p.len / s.len, midiToFreq(s.midi) / midiToFreq(p.midi), 1e-6), 'length ratio = pitch ratio');
+        assert(Math.hypot(s.ax - p.ax, s.ay - p.ay) > 2 * tol, `${W}x${H}: ${s.name} too close to ${p.name}`);
+      }
+    }
+  }
+  const wide = harpSlots(1180, 720), tall = harpSlots(390, 844);
+  assert(wide[0].ax < wide[5].ax && wide[0].ay === wide[0].ay && wide[0].bx === wide[0].ax, 'wide: upright strings, low notes on the left');
+  assert(tall[0].ay > tall[5].ay && tall[0].by === tall[0].ay, 'tall: flat strings, low notes at the bottom');
+});
+test('String lessons: a traced line fills its slot, a sloppy one does not', () => {
+  const slots = harpSlots(1180, 720), tol = 40, c = slots[0], d = slots[1];
+  const line = (s, da = 0, db = 0) => ({ ax: s.ax + da, ay: s.ay + da, bx: s.bx + db, by: s.by - db });
+  assert(matchSlot(line(c), slots, tol) === c, 'exact trace');
+  assert(matchSlot(line(c, 15, -20), slots, tol) === c, 'a little off is fine');
+  assert(matchSlot({ ax: c.bx, ay: c.by, bx: c.ax, by: c.ay }, slots, tol) === c, 'drawn backwards');
+  assert(matchSlot(line(d, 10, 10), slots, tol) === d, 'another slot');
+  const half = { ax: c.ax, ay: c.ay, bx: c.ax, by: c.ay + c.len / 2 };
+  assert(matchSlot(half, slots, tol) === null, 'half length must not match');
+  assert(matchSlot(line(c), slots.slice(1), tol) === null, 'slot already filled');
+  assert(drawFeedback(half, c, tol) === 'short', 'too short');
+  assert(drawFeedback({ ax: c.ax, ay: c.ay, bx: c.ax, by: c.ay + c.len * 1.5 }, c, tol) === 'long', 'too long');
+  assert(drawFeedback({ ax: c.ax + 300, ay: c.ay + 200, bx: c.ax + 300, by: c.ay + 400 }, c, tol) === 'away', 'somewhere else');
+  assert(drawFeedback({ ax: c.ax, ay: c.ay, bx: c.ax + c.len * 0.7, by: c.ay + c.len * 0.7 }, c, tol) === 'crooked', 'right length, wrong direction');
+});
+test('String lessons: tuned strings keep their note', () => {
+  const bank = new StringBank();
+  const s = bank.addTuned(100, 100, 100, 300, 1180, 720, 67);
+  assert(near(s.freq, midiToFreq(67)) && s.note === 'G4', `tuned string is ${s.note}`);
+  bank.setScale('pentatonic'); bank.setScale('off');
+  assert(near(s.freq, midiToFreq(67)), 'changed by Snap');
+  bank.resize(1180, 720, 390, 844);
+  assert(near(s.freq, midiToFreq(67)), 'changed by resize');
+});
+test('String lessons (play): right strings move the song on, wrong ones are counted', () => {
+  const s = song('buns'), run = new StringSongRun(s);
+  assert(run.target.midi === 64 && run.next.midi === 62, 'starts on E, then D');
+  assert(run.pluck(60, 0) === 'wrong' && run.index === 0, 'wrong string should not advance');
+  assert(run.pluck(64, 1000) === 'right' && run.index === 1, 'right string advances');
+  assert(run.pluck(65, 1050) === 'ignored' && run.wrong === 1, 'brushing a neighbour just after is forgiven');
+  assert(run.pluck(65, 2000) === 'wrong' && run.wrong === 2, 'a later wrong string counts');
+  let t = 3000;
+  while (!run.done) run.pluck(run.target.midi, (t += 400));
+  const res = run.result();
+  assert(res.total === 17 && res.wrong === 2, `${res.total} notes, ${res.wrong} slips`);
+  assert(res.stars === 2, `17 right, 2 slips = ${res.stars} stars`);
+  assert(run.pluck(60, t + 500) === 'ignored', 'nothing counts after the end');
+});
+test('String lessons (play): one strum across E, D, C plays three notes', () => {
+  const run = new StringSongRun(song('buns'));
+  assert(['right', 'right', 'right'].join() === [run.pluck(64, 0), run.pluck(62, 20), run.pluck(60, 40)].join(), 'strum in order');
+  assert(run.index === 3 && run.wrong === 0, 'three notes, no slips');
+  const clean = new StringSongRun(song('mary'));
+  let t = 0;
+  while (!clean.done) clean.pluck(clean.target.midi, (t += 300));
+  assert(clean.result().stars === 3, 'a clean run earns three stars');
+});
+test('String lessons: with drawing off, a pinch in empty space draws nothing but strings still play', () => {
+  const bank = new StringBank(), plucks = [];
+  const ix = new Interaction({ bank, synth: { pluck: (o) => plucks.push(o) }, onEvent: () => {} });
+  const s = bank.addTuned(600, 200, 600, 480, 1180, 720, 60);
+  ix.allowDraw = false;
+  let t = 0;
+  const ptr = (x, y, pinching, extra = {}) => ({ id: 'ptr:1', source: 'mouse', x, y, tipX: x, tipY: y, pinching, pinchStarted: false, pinchEnded: false, lost: false, ...extra });
+  ix.update([ptr(200, 300, true, { pinchStarted: true })], 1180, 720, (t += 16));
+  for (let i = 1; i <= 20; i++) ix.update([ptr(200 + i * 8, 300, true)], 1180, 720, (t += 16)); // slow drag in empty space
+  ix.update([ptr(360, 300, false, { pinchEnded: true })], 1180, 720, (t += 16));
+  assert(bank.strings.length === 1, 'drew a string while drawing was off');
+  // Drag the string sideways and let go: it plucks.
+  ix.update([ptr(600, 340, true, { pinchStarted: true })], 1180, 720, (t += 16));
+  for (let i = 1; i <= 6; i++) ix.update([ptr(600 + i * 5, 340, true)], 1180, 720, (t += 16));
+  ix.update([ptr(630, 340, false, { pinchEnded: true })], 1180, 720, (t += 16));
+  assert(plucks.length === 1 && near(plucks[0].freq, midiToFreq(60)), `plucks: ${plucks.length}`);
+});
+test('String lessons: a finished draw is handed to the lesson, not added freely', () => {
+  const bank = new StringBank(), got = [];
+  const ix = new Interaction({ bank, synth: { pluck() {} }, onEvent: () => {} });
+  ix.customAdd = (line, source) => got.push({ line, source });
+  let labelled = 0;
+  ix.previewHook = (pv) => { pv.note = 'C ✓'; labelled++; };
+  let t = 0;
+  const ptr = (x, y, pinching, extra = {}) => ({ id: 'ptr:1', source: 'mouse', x, y, tipX: x, tipY: y, pinching, pinchStarted: false, pinchEnded: false, lost: false, ...extra });
+  ix.update([ptr(200, 200, true, { pinchStarted: true })], 1180, 720, (t += 16));
+  for (let i = 1; i <= 25; i++) ix.update([ptr(200, 200 + i * 8, true)], 1180, 720, (t += 16));
+  assert(ix.previews.length === 1 && ix.previews[0].note === 'C ✓' && labelled > 5, 'preview relabelled by the lesson');
+  ix.update([ptr(200, 400, false, { pinchEnded: true })], 1180, 720, (t += 16));
+  assert(bank.strings.length === 0, 'string was added without asking the lesson');
+  assert(got.length === 1 && got[0].line.ay === 200 && got[0].line.by === 400 && got[0].source === 'mouse', 'lesson got the line');
 });
 
 // ---- render ----

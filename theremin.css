@@ -14,21 +14,6 @@ body.theremin .card h1 { background: linear-gradient(90deg, #a8ecff, #d7c4ff); -
 @keyframes draw { from { stroke-dashoffset: 340; } to { stroke-dashoffset: 0; } }
 .link { color: #9fd9ff; }
 
-/* One-tap cycle buttons: big single targets that are easy to pinch in the air. */
-.cycle-btn {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
-  border: 0; border-radius: 10px; padding: 6px 14px; min-width: 92px;
-  background: rgba(255,255,255,0.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
-  transition: background 0.15s;
-}
-.cycle-btn:hover { background: rgba(255,255,255,0.11); }
-.cycle-btn .k { font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--muted); font-weight: 700; }
-.cycle-btn .v { font-size: 14px; font-weight: 700; color: #e6f8ff; }
-@media (max-width: 720px) {
-  body.theremin .toolbar .volume { display: none; }
-  .cycle-btn { min-width: 0; padding: 6px 9px; }
-  .cycle-btn .v { font-size: 13px; }
-}
 
 /* Pinch-to-press feedback: the button fills while the pinch is held on it. */
 .cycle-btn.arming, .icon-btn.arming { background: rgba(120,224,255,0.25); box-shadow: inset 0 0 0 2px rgba(120,224,255,0.7); }
@@ -43,42 +28,8 @@ body.theremin .toolbar, body.theremin .status, body.theremin .coach, body.therem
 @media (max-width: 430px) {
   body.theremin .toolbar { gap: 4px; padding: 6px; }
   body.theremin .toolbar .group { gap: 3px; }
-  .cycle-btn { padding: 5px 7px; }
-  .cycle-btn .k { font-size: 9px; letter-spacing: 0.3px; }
-  .cycle-btn .v { font-size: 12px; }
   body.theremin .toolbar .icon-btn { padding: 6px 8px; }
   body.theremin .toolbar .icon-btn.round { width: 28px; height: 28px; padding: 0; }
   /* No room for it on a phone; the help panel links to Air Strings instead. */
   body.theremin .toolbar .strings-link { display: none; }
 }
-
-/* Lessons: the toolbar swaps free-play controls for lesson controls. */
-body:not(.lesson) .lesson-only, body.lesson .free-only { display: none !important; }
-.cycle-btn.learn { background: rgba(125,255,176,0.12); box-shadow: inset 0 0 0 1px rgba(125,255,176,0.4); }
-.cycle-btn.learn .k, .cycle-btn.learn .v { color: #b9ffd6; }
-#songBtn .v { white-space: nowrap; }
-#songKey .won { color: #ffd76a; letter-spacing: 1px; }
-body.lesson .coach { border-color: rgba(125,255,176,0.45); box-shadow: 0 10px 40px rgba(0,0,0,0.4); animation: none; }
-body.lesson .coach .step { background: linear-gradient(135deg, #7dffb0, #78e0ff); }
-.lesson-card {
-  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 12;
-  width: min(360px, calc(100vw - 32px)); padding: 20px 22px; border-radius: 18px; text-align: center;
-  background: rgba(14, 16, 26, 0.95); border: 1px solid rgba(125,255,176,0.45);
-  box-shadow: 0 16px 50px rgba(0,0,0,0.5);
-}
-.lesson-card h2 { margin: 4px 0 6px; font-size: 20px; }
-.lesson-card p { margin: 0 0 16px; color: #c9cfdf; }
-.lesson-card .stars { font-size: 34px; letter-spacing: 6px; color: #ffd76a; min-height: 8px; }
-.lesson-card .stars .off { color: rgba(255,255,255,0.18); }
-.lesson-card .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-.lesson-card .secondary {
-  border: 0; border-radius: 10px; padding: 9px 18px; font-size: 14px; font-weight: 700;
-  background: rgba(255,255,255,0.08); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14);
-}
-.lesson-card button.arming { box-shadow: inset 0 0 0 3px rgba(120,224,255,0.9); filter: brightness(1.15); }
-/* The coach owns the bottom of the screen in a lesson, so toasts go to the top. */
-body.lesson .toast { bottom: auto; top: 96px; transform: translate(-50%, -10px); }
-body.lesson .toast.show { transform: translate(-50%, 0); }
-/* A phone on its side: the toolbar has five controls now, so drop the volume
-   slider (the phone's own volume buttons do that job) to stay on one row. */
-@media (max-width: 900px) { body.theremin .toolbar .volume { display: none; } }

@@ -15,11 +15,11 @@
   <!-- Toolbar -->
   <header class="toolbar" id="toolbar" hidden>
     <div class="brand"><span class="logo" aria-hidden="true"></span>Air Strings</div>
-    <div class="group">
+    <div class="group free-only">
       <button id="undo" class="icon-btn" title="Undo last string (Z)">Undo</button>
       <button id="clear" class="icon-btn" title="Clear all strings (C)">Clear</button>
     </div>
-    <div class="group seg" role="group" aria-label="Snap to scale" title="Snap to scale">
+    <div class="group seg free-only" role="group" aria-label="Snap to scale" title="Snap to scale">
       <span class="label">Snap</span>
       <button class="seg-btn" data-scale="off">Off</button>
       <button class="seg-btn" data-scale="chromatic">Chromatic</button>
@@ -29,7 +29,13 @@
       <span class="label">Vol</span>
       <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Volume">
     </label>
-    <a class="icon-btn" href="theremin.html" title="Try the Air Theremin">Theremin</a>
+    <button id="learnBtn" class="icon-btn learn free-only" title="Learn to play a song, step by step (L)">Learn</button>
+    <div class="group lesson-only">
+      <button id="songBtn" class="cycle-btn" title="Next song"><span class="k" id="songKey">Song</span><span class="v" id="songVal">Hot Cross Buns</span></button>
+      <button id="stepBtn" class="cycle-btn" title="Step 1: draw the strings the song needs. Step 2: play it."><span class="k">Step</span><span class="v" id="stepVal">1 · Build</span></button>
+      <button id="exitLessonBtn" class="cycle-btn" title="Back to free play (L)"><span class="k">Lesson</span><span class="v">Exit</span></button>
+    </div>
+    <a class="icon-btn free-only" href="theremin.html" title="Try the Air Theremin">Theremin</a>
     <button id="help" class="icon-btn round" title="How to play (H)" aria-label="Help">?</button>
   </header>
 
@@ -40,6 +46,16 @@
   <button class="sound-banner" id="soundBanner" hidden>
     <span class="spk" aria-hidden="true"></span>Sound paused. Tap to turn it on.
   </button>
+
+  <section class="lesson-card" id="lessonCard" hidden>
+    <div class="stars" id="lessonStars" aria-hidden="true"></div>
+    <h2 id="lessonTitle"></h2>
+    <p id="lessonMsg"></p>
+    <div class="row">
+      <button id="lessonPrimary" class="primary small"></button>
+      <button id="lessonSecondary" class="secondary small"></button>
+    </div>
+  </section>
 
   <!-- Start screen -->
   <section class="overlay" id="start">
@@ -83,7 +99,8 @@
       </div>
     </div>
     <p class="hint-note">Short strings ring high, long strings ring low (E2 to E5).<span class="hand-only"> Pinch a toolbar button to press it.</span></p>
-    <p class="keys"><kbd>Z</kbd> undo · <kbd>C</kbd> clear · <kbd>H</kbd> help</p>
+    <p class="hint-note"><b>Learn</b> teaches you a song: first you draw the strings it needs (longer strings play lower notes), then the string to pluck next lights up.</p>
+    <p class="keys"><kbd>Z</kbd> undo · <kbd>C</kbd> clear · <kbd>L</kbd> learn a song · <kbd>H</kbd> help</p>
     <button id="hintOk" class="primary small">Got it</button>
   </aside>
 

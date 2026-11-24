@@ -51,6 +51,10 @@ export class Interaction {
     this.onEvent = onEvent;
     this.state = new Map(); // pointer id -> state
     this.previews = [];
+    // Hooks for lessons:
+    this.allowDraw = true;   // false: pinching empty space draws nothing
+    this.customAdd = null;   // (line, source) => void: decides what a finished draw becomes
+    this.previewHook = null; // (preview) => void: may relabel the line being drawn
   }
 
   /** Abandon anything in progress (e.g. after Clear). */
@@ -93,7 +97,7 @@ export class Interaction {
         const btn = el && el.closest('button:not([disabled])');
         // Only the app's own buttons can be pressed by a pinch (never links:
         // an off-target pinch shouldn't navigate away mid-performance).
-        if (btn && btn.closest('.toolbar, .hint, .banner, .sound-banner')) { btn.click(); st.action = 'ui'; }
+        if (btn && btn.closest('.toolbar, .hint, .banner, .sound-banner, .lesson-card')) { btn.click(); st.action = 'ui'; }
       }
 
       if (st.action === 'ui') {
@@ -131,6 +135,8 @@ export class Interaction {
           st.action = 'grabbing';
           st.grab = { string: s };
           s.pull = { t: clampT(t), disp: 0 };
+        } else if (!this.allowDraw) {
+          st.action = 'ignoredPinch'; // drawing is off: the pinch can still strum
         } else {
           st.action = 'pendingDraw';
           st.start = { x: p.x, y: p.y };
@@ -202,11 +208,13 @@ export class Interaction {
     if (p.lost) { st.action = 'idle'; return; } // tracking lost mid-draw: cancel
     const frac = lengthFraction(st.start.x, st.start.y, p.x, p.y, W, H);
     if (p.pinching) {
-      this.previews.push({
+      const pv = {
         ax: st.start.x, ay: st.start.y, bx: p.x, by: p.y,
         ok: frac >= MIN_STRING_FRAC,
         note: pitchForLength(Math.max(frac, 1e-4), this.bank.scale).note,
-      });
+      };
+      if (this.previewHook) this.previewHook(pv);
+      this.previews.push(pv);
       return;
     }
     // Released
@@ -216,6 +224,7 @@ export class Interaction {
       this.onEvent({ type: 'tooQuick' });
       return;
     }
+    if (this.customAdd) { this.customAdd({ ax: st.start.x, ay: st.start.y, bx: p.x, by: p.y }, p.source); return; }
     if (frac < MIN_STRING_FRAC) {
       if (frac > 0.01) this.onEvent({ type: 'tooShort' });
       return;
@@ -233,7 +242,7 @@ export class Interaction {
     const a = st.action;
     const canStrum = p.source === 'hand'
       ? ((a === 'idle' && !p.pinching) || a === 'ignoredPinch' || a === 'strummed' || DRAWISH.has(a))
-      : (DRAWISH.has(a) || a === 'strummed');
+      : (DRAWISH.has(a) || a === 'strummed' || a === 'ignoredPinch');
     const tip = { x: p.tipX, y: p.tipY };
     // On a mouse press the previous position is stale (cursor jumped), so skip that frame.
     const skipFrame = p.pinchStarted && p.source !== 'hand';

@@ -6,6 +6,7 @@ import { HandGestures, PointerGestures } from './gestures.js';
 import { StringBank, roundRect } from './strings.js';
 import { Interaction } from './interaction.js';
 import { UI } from './ui.js';
+import { createStringLessons } from './string-lesson-main.js';
 
 const params = new URLSearchParams(location.search);
 const video = document.getElementById('video');
@@ -31,26 +32,29 @@ const app = {
   strumTipUntil: 0,     // show the strum tip briefly after the first pluck
 };
 
-let ui; // assigned below
+let ui, lessons; // assigned below
 const interaction = new Interaction({
   bank, synth,
   onEvent(ev) {
+    if (lessons) lessons.onEvent(ev);
     if (ev.type === 'pluck' || ev.type === 'strum') {
       if (!app.plucked) app.strumTipUntil = performance.now() + 6000;
       app.plucked = true;
       if (ev.type === 'strum') app.strummed = true;
     } else if (ev.type === 'tooQuick') {
       // Only explain while they're still learning; otherwise it's likely a strum.
-      if (bank.strings.length === 0 && !app.mouseMode) ui.toast('Hold the pinch for a moment, then drag, to draw.', 2600);
+      if (bank.strings.length === 0 && !app.mouseMode && !lessons.active) ui.toast('Hold the pinch for a moment, then drag, to draw.', 2600);
     } else if (ev.type === 'tooShort') ui.toast('Too short. Drag a longer string.');
     else if (ev.type === 'tooMany') ui.toast('That’s plenty of strings! Undo or clear some.');
   },
 });
 
 ui = new UI({
-  onUndo() { if (bank.undo()) ui.toast('Removed last string'); },
-  onClear() { interaction.reset(); const n = bank.clear(); if (n) ui.toast(`Cleared ${n} string${n > 1 ? 's' : ''}`); },
+  // Undo, Clear and Snap belong to free play; a lesson manages its own strings.
+  onUndo() { if (lessons.active) return; if (bank.undo()) ui.toast('Removed last string'); },
+  onClear() { if (lessons.active) return; interaction.reset(); const n = bank.clear(); if (n) ui.toast(`Cleared ${n} string${n > 1 ? 's' : ''}`); },
   onScale(s) {
+    if (lessons.active) return;
     bank.setScale(s);
     ui.setScale(s);
     ui.toast({ off: 'Snap off: exact pitch from length', chromatic: 'Snap: chromatic', pentatonic: 'Snap: E major pentatonic' }[s]);
@@ -58,6 +62,7 @@ ui = new UI({
   onVolume(v) { synth.setVolume(v); },
 });
 ui.setScale(bank.scale);
+lessons = createStringLessons({ app, bank, interaction, ui });
 
 if (app.mouseMode) {
   document.getElementById('startNote').textContent = 'Mouse mode: no camera needed. Drag in empty space to draw strings.';
@@ -130,6 +135,7 @@ function resize() {
   app.W = W; app.H = H; app.dpr = dpr;
   canvas.width = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
+  if (lessons) lessons.resize();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -163,9 +169,10 @@ function frame(now) {
 
   interaction.update(pointers, W, H, now);
   bank.update(dt);
-  ui.setCoach(coach(now));
+  lessons.frame();
+  ui.setCoach(lessons.active ? lessons.coach() : coach(now));
   ui.setSoundPaused(app.started && synth.needsUnlock);
-  render(pointers);
+  render(pointers, now);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -194,13 +201,15 @@ function coach(now) {
 }
 
 // ---------------- Render ----------------
-function render(pointers) {
+function render(pointers, now) {
   const { W, H, dpr } = app;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
 
+  lessons.drawUnder(ctx, now);
   bank.draw(ctx);
   for (const p of interaction.previews) drawPreview(p);
+  lessons.drawOver(ctx);
   for (const p of pointers) drawPointer(p);
 }
 
@@ -208,7 +217,7 @@ function drawPreview(p) {
   ctx.save();
   ctx.setLineDash([8, 8]);
   ctx.lineCap = 'round';
-  ctx.strokeStyle = p.ok ? 'rgba(220, 200, 255, 0.9)' : 'rgba(255, 140, 150, 0.7)';
+  ctx.strokeStyle = p.match ? 'rgba(125, 255, 176, 0.95)' : p.ok ? 'rgba(220, 200, 255, 0.9)' : 'rgba(255, 140, 150, 0.7)';
   ctx.lineWidth = 2.5;
   ctx.shadowColor = 'rgba(180,140,255,0.8)';
   ctx.shadowBlur = 12;
@@ -227,7 +236,7 @@ function drawPreview(p) {
     const w = ctx.measureText(p.note).width + 14;
     ctx.fillStyle = 'rgba(8,10,18,0.7)';
     roundRect(ctx, x - w / 2, y - 11, w, 22, 11); ctx.fill();
-    ctx.fillStyle = '#e9ddff';
+    ctx.fillStyle = p.match ? '#b9ffd6' : '#e9ddff';
     ctx.fillText(p.note, x, y + 0.5);
   }
   ctx.restore();
@@ -280,4 +289,4 @@ function drawPointer(p) {
 }
 
 // Debug handle (used for automated checks; harmless otherwise).
-window.airStrings = { app, bank, synth, interaction, tracker, start };
+window.airStrings = { app, bank, synth, interaction, tracker, start, lessons };

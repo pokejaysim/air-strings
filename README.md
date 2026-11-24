@@ -30,7 +30,7 @@ them instead of drawing. The thresholds live in `TUNING` in
 `js/interaction.js`. A short coaching line at
 the bottom walks first-time players through draw, pluck, then strum.
 
-Keyboard: **Z** undo · **C** clear · **H** help.
+Keyboard: **Z** undo · **C** clear · **L** learn a song · **H** help.
 
 **Pitch:** frequency is inversely proportional to length, measured as a
 fraction of the screen diagonal, so it works the same at any window size.
@@ -40,6 +40,29 @@ pentatonic (E F# G# B C#), or leave it off for exact, slide-able pitch.
 
 If a pinch pulls a string too far, it slips out of your fingers and plucks at
 full volume, just like a real one.
+
+### Learn a song
+
+Press **Learn** to be taught a tune on a small harp you build yourself (the
+same five songs as the theremin, easiest first).
+
+1. **Step 1 · Build.** Each string the song needs has a dashed outline of
+   exactly the right length for its note. Pinch the glowing dot, stretch to
+   the ring and let go. The label counts down through the notes as the line
+   gets longer (…E4, D4, C ✓), and the coach says how each string compares
+   with the last ("shorter than C, so it sounds higher"). A line that misses
+   is thrown away with a hint (too short, too long, wrong place).
+2. **Step 2 · Play.** The string to pluck next lights up, the next few notes
+   are shown under the toolbar, and the song waits for you. Stars are for
+   accuracy: wrong strings count as slips, though brushing a neighbour right
+   after a correct pluck is forgiven.
+
+The harp has six strings, C4 to A4, and is kept between songs, so each song
+only asks for the strings you don't have yet (Hot Cross Buns needs C, D, E;
+Mary Had a Little Lamb then adds G). Pressing **Step** during the build
+draws the remaining strings for you; pressing it while playing clears the
+harp to build again. Your own free-play strings are put away during a lesson
+and come back when you exit.
 
 ## Air Theremin
 
@@ -111,7 +134,8 @@ Open http://localhost:8000/tests.html. It checks the pitch math (halving
 length raises an octave, clamping, scale snapping, note names), pinch
 hysteresis, video mirroring, simulated hand gestures (drawing, plucking,
 strumming, cooldowns), the theremin's mapping, assist, roles and
-volume memory, and the song lessons (waiting, timing, scoring). The theremin also has mouse mode: `theremin.html?mouse=1`.
+volume memory, and the song lessons on both instruments (waiting, timing,
+scoring, the harp layout and slot matching). The theremin also has mouse mode: `theremin.html?mouse=1`.
 
 ## How it works
 
@@ -129,7 +153,9 @@ volume memory, and the song lessons (waiting, timing, scoring). The theremin als
 | `js/theremin-map.js` | Theremin logic (pure, tested): layout, hand roles, pitch/volume/tone mapping, Assist, vibrato split, volume memory |
 | `js/theremin-synth.js` | Theremin voice: two oscillators, tone filter, smooth glides, three voices |
 | `js/theremin-main.js` | Theremin page: boot, frame loop, pinch-and-hold controls, drawing |
-| `js/lessons.js` | Song lessons (pure, tested): the songs, the learn and play steps, scoring |
+| `js/lessons.js` | Song lessons (pure, tested): the songs, the theremin's learn and play steps, scoring |
+| `js/string-lessons.js` | Air Strings lessons (pure, tested): harp layout, slot matching, playing a song string by string |
+| `js/string-lesson-main.js` | Air Strings lessons on the page: controls, coaching, drawing |
 | `js/lesson-view.js` | Draws the lesson ribbon |
 
 The synth excites a delay line one period long with a burst of filtered noise,

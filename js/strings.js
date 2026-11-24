@@ -1,13 +1,14 @@
 // Virtual strings: geometry, pull/vibration physics, and rendering.
 
-import { pitchForLength, lengthFraction, E2 } from './pitch.js';
+import { pitchForLength, lengthFraction, midiToFreq, noteName, E2 } from './pitch.js';
 
 const MODES = 6;
 let nextId = 1;
 
 export class AirString {
-  constructor({ ax, ay, bx, by, lengthFrac, scale }) {
+  constructor({ ax, ay, bx, by, lengthFrac, scale, midi = null }) {
     this.id = nextId++;
+    this.fixedMidi = midi; // lesson strings are tuned to an exact note
     this.ax = ax; this.ay = ay; this.bx = bx; this.by = by;
     this.lengthFrac = lengthFrac;
     this.modes = new Float32Array(MODES); // mode amplitudes in px
@@ -21,7 +22,9 @@ export class AirString {
   }
 
   retune(scale) {
-    const p = pitchForLength(this.lengthFrac, scale);
+    const p = this.fixedMidi != null
+      ? { freq: midiToFreq(this.fixedMidi), note: noteName(midiToFreq(this.fixedMidi)), cents: 0 }
+      : pitchForLength(this.lengthFrac, scale);
     this.freq = p.freq; this.note = p.note; this.cents = p.cents;
     const x = Math.min(1, Math.max(0, Math.log2(this.freq / E2) / 3)); // 0 = E2, 1 = E5
     this.hue = 265 - 235 * x; // low = violet, high = amber
@@ -165,6 +168,12 @@ export class StringBank {
 
   add(ax, ay, bx, by, W, H) {
     const s = new AirString({ ax, ay, bx, by, lengthFrac: lengthFraction(ax, ay, bx, by, W, H), scale: this.scale });
+    this.strings.push(s);
+    return s;
+  }
+  /** A string tuned to an exact note, whatever its drawn length (used by lessons). */
+  addTuned(ax, ay, bx, by, W, H, midi) {
+    const s = new AirString({ ax, ay, bx, by, lengthFrac: lengthFraction(ax, ay, bx, by, W, H), scale: this.scale, midi });
     this.strings.push(s);
     return s;
   }

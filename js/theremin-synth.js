@@ -40,6 +40,7 @@ export class ThereminSynth extends AudioCore {
     this.targetLevel = 0;
     this.silentSince = 0;     // ctx time when the target last went to 0
     this.last = { freq: 0, level: 0, tone: 0.5, sounding: false }; // for debugging/tests
+    this.face = null;         // { mouth, oo } while face control is on
   }
 
   async setup(ctx, input) {
@@ -117,6 +118,16 @@ export class ThereminSynth extends AudioCore {
 
   updateFilter(freq, immediate) {
     const v = VOICES[this.voiceName];
+    if (this.face) {
+      // Face control: a resonant "wah" that follows the note. Mouth closed sits
+      // just above the note (dark, "mm"); wide open reaches past its 8th
+      // harmonic. An "oo" pulls it lower and more hollow.
+      const { cutoff, q } = faceFilter(freq, this.face.mouth, this.face.oo);
+      const t = this.ctx.currentTime;
+      if (immediate) { this.filter.frequency.setValueAtTime(cutoff, t); this.filter.Q.setValueAtTime(q, t); }
+      else { this.filter.frequency.setTargetAtTime(cutoff, t, 0.03); this.filter.Q.setTargetAtTime(q, t, 0.05); }
+      return;
+    }
     // Tone (0 dark .. 1 bright) from the pitch hand's other direction.
     const toneMul = 0.45 + 1.3 * this.tone;
     const cutoff = Math.min(16000, (v.filter + v.track * freq) * toneMul);
@@ -131,7 +142,7 @@ export class ThereminSynth extends AudioCore {
    * @param {number} glide time constant (s) for pitch changes
    * @param {number} release time constant (s) for the level falling
    */
-  update({ sounding, pitchPresent, freq, level, tone = 0.5 }, glide = 0.02, release = 0.08) {
+  update({ sounding, pitchPresent, freq, level, tone = 0.5, face = null }, glide = 0.02, release = 0.08) {
     if (!this.ctx || !this.running) return false;
     const t = this.ctx.currentTime;
     const v = VOICES[this.voiceName];
@@ -140,7 +151,13 @@ export class ThereminSynth extends AudioCore {
     const freqChanged = freq > 0 && Math.abs(freq - this.lastFreq) > 0.01;
     const toneChanged = Math.abs(tone - this.tone) > 0.005;
     const levelChanged = Math.abs(target - this.target) > 1e-4;
-    if (!freqChanged && !toneChanged && !levelChanged && sounding === this.sounding) return true;
+    const faceToggled = !face !== !this.face;
+    const faceChanged = faceToggled || (face && (Math.abs(face.mouth - this.face.mouth) > 0.01 || Math.abs(face.oo - this.face.oo) > 0.01));
+    if (!freqChanged && !toneChanged && !levelChanged && !faceChanged && sounding === this.sounding) return true;
+    if (faceChanged) {
+      this.face = face ? { mouth: face.mouth, oo: face.oo } : null;
+      if (faceToggled && !face) this.filter.Q.setTargetAtTime(v.q, t, 0.05); // back to the voice's own filter
+    }
 
     if (pitchPresent && freq > 0 && freqChanged) {
       // Keep gliding even while silent, so re-articulating with the volume
@@ -154,7 +171,7 @@ export class ThereminSynth extends AudioCore {
       }
       this.lastFreq = freq;
     }
-    if (toneChanged || freqChanged) {
+    if (toneChanged || freqChanged || faceChanged) {
       this.tone = tone;
       this.updateFilter(this.lastFreq, false);
     }
@@ -176,4 +193,13 @@ export class ThereminSynth extends AudioCore {
     this.analyser.getFloatTimeDomainData(this.wave);
     return this.wave;
   }
+}
+
+/** The face "wah" filter for a note: { cutoff (Hz), q }. Exported for tests. */
+export function faceFilter(freq, mouth, oo) {
+  const f = Math.max(40, freq || 262);
+  const open = Math.pow(Math.min(1, Math.max(0, mouth)), 1.3);
+  const round = Math.min(1, Math.max(0, oo));
+  const cutoff = Math.min(14000, Math.max(120, f * (1.1 + 9 * open) * (1 - 0.5 * round)));
+  return { cutoff, q: 5 + 3 * round };
 }

@@ -11,6 +11,8 @@ import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GA
 import { ribbonGeometry } from './lesson-view.js';
 import { suggestedSong } from './song-picker.js';
 import { parseHands } from './tracking.js';
+import { parseFace, FaceControls, CAL_MS, MOUTH_RANGE, BROW_ON, BROW_OFF, LOST_MS, TILT_START, TILT_FULL } from './face.js';
+import { faceFilter } from './theremin-synth.js';
 import { SignWatcher, SIGNS, GAP_MS, SHOW_AFTER_MS, COOLDOWN_MS, MIN_SCORE } from './hand-signs.js';
 import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun, StringTimedRun, timedGeometry, STRING_TEMPOS, PERFECT_SEC, WINDOW_SEC } from './string-lessons.js';
 
@@ -988,6 +990,80 @@ test('A fist never starts a pinch, but a pinch with curled fingers still does', 
   for (let i = 0; i < 5; i++) p = g.update(hand(true, null), video, 1280, 720, (t += 33))[0];
   for (let i = 0; i < 5; i++) p = g.update(hand(true, fist), video, 1280, 720, (t += 33))[0];
   assert(p.pinching, 'a fist label mid-draw must not drop the string');
+});
+
+// ---- face control ----
+const faceRes = (scores, rollDeg = 0) => {
+  const a = (rollDeg * Math.PI) / 180;
+  const m = [Math.cos(a), Math.sin(a), 0, 0, -Math.sin(a), Math.cos(a), 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  return { faceBlendshapes: [{ categories: Object.entries(scores).map(([categoryName, score]) => ({ categoryName, score })) }], facialTransformationMatrixes: [{ data: m }] };
+};
+test('Face: blendshapes are read into jaw, "oo", brows and head roll', () => {
+  assert(parseFace({ faceBlendshapes: [] }).face === false && parseFace(null).face === false, 'no face');
+  const f = parseFace(faceRes({ jawOpen: 0.6, mouthPucker: 0.2, mouthFunnel: 0.5, browInnerUp: 0.4, browOuterUpLeft: 0.2, browOuterUpRight: 0.4 }, 12));
+  assert(f.face && near(f.jaw, 0.6) && near(f.pucker, 0.5), JSON.stringify(f));
+  assert(near(f.brow, (0.4 + 0.3) / 2), `brow ${f.brow}`);
+  assert(near(f.roll, 12, 1e-6), `roll ${f.roll}`);
+});
+const faceSample = (jaw = 0.05, pucker = 0.05, brow = 0.1, roll = 0) => ({ face: true, jaw, pucker, brow, roll });
+test('Face: learns your resting face first, then measures from it', () => {
+  const fc = new FaceControls();
+  let t = 0;
+  for (; t < CAL_MS - 100; t += 33) fc.update(faceSample(0.15, 0.1, 0.2), t);
+  assert(fc.calibrating && fc.calProgress(t) > 0.8 && fc.calProgress(t) < 1, 'still learning');
+  for (; t < CAL_MS + 100; t += 33) fc.update(faceSample(0.15, 0.1, 0.2), t);
+  assert(!fc.calibrating, 'calibrated');
+  for (let i = 0; i < 30; i++) fc.update(faceSample(0.15, 0.1, 0.2), (t += 33));
+  assert(fc.mouth < 0.02 && fc.oo < 0.02 && !fc.brows, 'resting face is neutral even with a slightly open mouth');
+  for (let i = 0; i < 30; i++) fc.update(faceSample(0.15 + MOUTH_RANGE, 0.1, 0.2), (t += 33));
+  assert(fc.mouth > 0.95, `wide open: ${fc.mouth}`);
+  for (let i = 0; i < 30; i++) fc.update(faceSample(0.15 + MOUTH_RANGE / 2, 0.1, 0.2), (t += 33));
+  assert(Math.abs(fc.mouth - 0.5) < 0.05, `half open: ${fc.mouth}`);
+});
+test('Face: eyebrow octave has hysteresis, and a lost face relaxes', () => {
+  const fc = new FaceControls();
+  let t = 0;
+  for (; t <= CAL_MS + 50; t += 33) fc.update(faceSample(0.05, 0.05, 0.1), t);
+  const mid = 0.1 + (BROW_ON + BROW_OFF) / 2;
+  fc.update(faceSample(0.05, 0.05, mid), (t += 33));
+  assert(!fc.brows, 'between thresholds from down: stays off');
+  fc.update(faceSample(0.05, 0.05, 0.1 + BROW_ON + 0.05), (t += 33));
+  assert(fc.brows, 'raised: octave on');
+  fc.update(faceSample(0.05, 0.05, mid), (t += 33));
+  assert(fc.brows, 'between thresholds from up: stays on');
+  fc.update(faceSample(0.05, 0.05, 0.1), (t += 33));
+  assert(!fc.brows, 'lowered: octave off');
+  for (let i = 0; i < 20; i++) fc.update(faceSample(0.05 + MOUTH_RANGE, 0.05, 0.1 + BROW_ON + 0.1), (t += 33));
+  assert(fc.brows && fc.mouth > 0.9, 'open and raised');
+  for (let i = 0; i < 30; i++) fc.update({ face: false }, (t += 33));
+  assert(!fc.present && !fc.brows && fc.mouth < 0.05, `relaxed after losing the face: ${fc.mouth}`);
+  assert(!fc.calibrating, 'keeps the calibration');
+});
+test('Face: walking away mid-calibration starts it over', () => {
+  const fc = new FaceControls();
+  let t = 0;
+  for (; t < CAL_MS / 2; t += 33) fc.update(faceSample(), t);
+  for (let i = 0; i < 20; i++) fc.update({ face: false }, (t += 33));
+  assert(fc.calibrating && fc.calProgress(t) === 0, 'restarted');
+  for (let i = 0; i < 10; i++) fc.update(faceSample(), (t += 33));
+  assert(fc.calibrating, 'needs a full second again');
+});
+test('Face: head tilt beyond a few degrees sets the vibrato depth', () => {
+  const fc = new FaceControls();
+  let t = 0;
+  for (; t <= CAL_MS + 50; t += 33) fc.update(faceSample(0.05, 0.05, 0.1, 2), t);
+  for (let i = 0; i < 30; i++) fc.update(faceSample(0.05, 0.05, 0.1, 2 + TILT_START - 1), (t += 33));
+  assert(fc.tilt < 0.02, 'small tilts do nothing');
+  for (let i = 0; i < 30; i++) fc.update(faceSample(0.05, 0.05, 0.1, 2 - TILT_FULL - 5), (t += 33));
+  assert(fc.tilt > 0.95, `either side counts: ${fc.tilt}`);
+});
+test('Face wah: closed sits near the note, open is far brighter, "oo" is darker', () => {
+  const c = faceFilter(262, 0, 0), o = faceFilter(262, 1, 0), oo = faceFilter(262, 1, 1);
+  assert(c.cutoff > 262 && c.cutoff < 262 * 1.3, `closed ${c.cutoff}`);
+  assert(o.cutoff > 262 * 8, `open ${o.cutoff}`);
+  assert(oo.cutoff < o.cutoff * 0.6 && oo.q > o.q, 'oo darker and more hollow');
+  assert(faceFilter(523, 0.5, 0).cutoff > faceFilter(262, 0.5, 0).cutoff * 1.9, 'follows the note');
+  assert(faceFilter(5000, 1, 0).cutoff <= 14000 && faceFilter(20, 0, 0).cutoff >= 120, 'clamped');
 });
 
 // ---- render ----

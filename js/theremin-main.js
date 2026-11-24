@@ -13,6 +13,7 @@ import { drawRibbon, ribbonGeometry } from './lesson-view.js';
 import { FX, drawStreak } from './fx.js';
 import { createSongPicker, suggestedSong } from './song-picker.js';
 import { SignWatcher, drawSignRings, signsEnabled, setSignsEnabled } from './hand-signs.js';
+import { FaceTracker, FaceControls, drawFaceBadge } from './face.js';
 
 // Right after an update a browser can pair a cached older page with newer
 // scripts, so a missing element gets a stand-in instead of stopping the app.
@@ -30,6 +31,9 @@ const hands = new HandGestures();
 const mouse = new PointerGestures(canvas);
 const state = new ThereminState();
 const signs = new SignWatcher();
+const faceTracker = new FaceTracker();
+const faceCtl = new FaceControls();
+const FACE_MIN_FPS = 15; // below this (and well below where it was), Face turns itself off
 
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
@@ -91,6 +95,7 @@ const app = {
   signsOn: signsEnabled(),
   signRings: [],
   fistMute: false, // a held fist silences the instrument
+  face: { on: false, loading: false, baseFps: 0, slowSecs: 0, wasCal: true },
 };
 
 // ---------------- Controls ----------------
@@ -254,6 +259,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'v') cycleVoice();
   else if (k === 's') cycleScale();
   else if (k === 'r') cycleRange();
+  else if (k === 'f') setFace(!app.face.on);
   else if (k === 'h' || k === '?') $('hint').hidden = !$('hint').hidden;
   else if (k === 'escape') { if (!$('hint').hidden) $('hint').hidden = true; else if (lesson.active) exitLesson(); }
   else return;
@@ -410,6 +416,7 @@ function frame(now) {
       detectCount = 0; detectWindow = now;
       const n = app.handCount;
       setStatus(n ? `Tracking ${n} hand${n > 1 ? 's' : ''} · ${app.detectFps} fps · ${app.delegate}` : 'Show your hands to the camera', 'live');
+      guardFaceSpeed();
     }
     handlePinchPresses(handPtrs, now);
   }
@@ -465,6 +472,12 @@ function frame(now) {
     streak.last = c;
     if (lesson.view.done && !lesson.cardShown) finishLesson();
   }
+  const face = app.cameraOn && !app.mouseMode ? readFace(now) : null;
+  if (face && !lesson.demo) {
+    heard = { ...heard, face };
+    if (face.octave && heard.freq) heard.freq *= 2;
+  }
+  app.faceOut = face;
   if (app.fistMute) heard = { ...heard, sounding: false };
   const handGlide = app.cameraOn && !app.mouseMode ? (app.detectInterval / 1000) * 0.6 : 0;
   const glide = Math.max(GLIDE[eff.assist], handGlide);
@@ -496,6 +509,71 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// ---------------- Face control ----------------
+// Mouth open = brighter "wah", lips in an "oo" = darker, eyebrows up = an
+// octave higher (free play only, so lessons stay on their notes).
+async function setFace(on) {
+  const f = app.face;
+  if (on === f.on || f.loading) return;
+  if (on && (!app.cameraOn || app.mouseMode)) { toast('Face control needs the camera.', 2200); return; }
+  if (on) {
+    f.loading = true;
+    $('faceVal').textContent = '…'; $('faceVal2').textContent = '…';
+    try {
+      await faceTracker.init((s) => setStatus(s, 'warn'));
+    } catch (err) {
+      console.error(err);
+      f.loading = false;
+      refreshFaceLabels();
+      toast('The face tracker could not load. Check your connection and try again.', 3000);
+      return;
+    }
+    f.loading = false;
+    faceCtl.reset();
+    f.on = true; f.wasCal = true; f.slowSecs = 0; f.baseFps = app.detectFps;
+    (lesson.active ? say : toast)('Relax your face for a moment…', 1600);
+  } else {
+    f.on = false;
+  }
+  refreshFaceLabels();
+}
+function refreshFaceLabels() {
+  const v = app.face.on ? 'On' : 'Off';
+  $('faceVal').textContent = v; $('faceVal2').textContent = v;
+  $('faceBtn').classList.toggle('on', app.face.on);
+  $('faceBtn').setAttribute('aria-pressed', String(app.face.on));
+  $('faceBtn').title = `Face control is ${v.toLowerCase()}: mouth for tone, eyebrows for an octave (F)`;
+}
+$('faceBtn').addEventListener('click', () => setFace(!app.face.on));
+$('faceBtn2').addEventListener('click', () => setFace(!app.face.on));
+/** Read the face this frame; returns the face part of what the synth should play, or null. */
+function readFace(now) {
+  const f = app.face;
+  if (!f.on) return null;
+  let sample = null;
+  try { sample = faceTracker.detect(video, now); } catch (err) { console.warn('face detect failed', err); }
+  faceCtl.update(sample, now);
+  if (f.wasCal && !faceCtl.calibrating) {
+    (lesson.active ? say : toast)(lesson.active
+      ? 'Face on: open your mouth for a brighter sound.'
+      : 'Face on: open your mouth for a brighter sound, raise your eyebrows for an octave up.', 3200);
+  }
+  f.wasCal = faceCtl.calibrating;
+  if (faceCtl.calibrating || !faceCtl.present) return null;
+  return { mouth: faceCtl.mouth, oo: faceCtl.oo, octave: faceCtl.brows && !lesson.active };
+}
+/** Once a second: if hand tracking slows right down with Face on, turn Face off. */
+function guardFaceSpeed() {
+  const f = app.face;
+  if (!f.on) return;
+  const slow = app.detectFps < FACE_MIN_FPS && app.detectFps < f.baseFps * 0.8;
+  f.slowSecs = slow ? f.slowSecs + 1 : 0;
+  if (f.slowSecs >= 3) {
+    setFace(false);
+    toast('Face control turned off: hand tracking got too slow on this device.', 3600);
+  }
+}
 
 // ---------------- Hand signs ----------------
 // Hold a shape for a moment: a fist silences (while held), thumbs up says yes,
@@ -654,6 +732,12 @@ function render() {
   fxT = now;
   fx.draw(ctx);
   drawSignRings(ctx, app.signRings);
+  if (app.face.on) { const [fx2, fy2] = faceBadgePos(); drawFaceBadge(ctx, fx2, fy2, faceCtl, now); }
+}
+/** The face badge sits near the top of the volume side (below the streak counter in a lesson). */
+function faceBadgePos() {
+  const v = app.layout.volume;
+  return [Math.max(48, v.x + v.w / 2), v.y + (lesson.active ? 150 : 70)];
 }
 
 // Glow without shadowBlur (slow on phones): a wide faint stroke under a thin bright one.
@@ -828,5 +912,5 @@ function label(text, x, y, color, size = 13) {
 window.theremin = {
   app, synth, settings, tracker, state, start, setAssist, setVoice, setScale, setRange,
   lesson, picker, enterLesson, exitLesson, setLessonSong, setLessonMode, setLessonTempo, startDemo, stopDemo,
-  signs, setSigns,
+  signs, setSigns, setFace, faceCtl, faceTracker,
 };

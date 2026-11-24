@@ -6,7 +6,7 @@ import { StringBank } from './strings.js';
 import { Interaction, TUNING } from './interaction.js';
 import { HandGestures, videoToScreen, PINCH_ON, PINCH_OFF } from './gestures.js';
 import * as TH from './theremin-map.js';
-import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GATE_SEC, COUNT_IN_BEATS } from './lessons.js';
+import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GATE_SEC, COUNT_IN_BEATS, noteAt, demoFrame } from './lessons.js';
 import { ribbonGeometry } from './lesson-view.js';
 import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun, StringTimedRun, timedGeometry, STRING_TEMPOS, PERFECT_SEC, WINDOW_SEC } from './string-lessons.js';
 
@@ -714,6 +714,24 @@ test('String lessons (play): one strum across E, D, C plays three notes', () => 
   let t = 0;
   while (!clean.done) clean.pluck(clean.target.midi, (t += 300));
   assert(clean.result().stars === 3, 'a clean run earns three stars');
+});
+test('Listen first: the demo walks through every note in order, on the beat, and then ends', () => {
+  for (const id of ['buns', 'mary', 'sheep', 'twinkle', 'ode']) {
+    const s = song(id);
+    assert(noteAt(s, -0.5) === -1 && noteAt(s, 0) === 0 && noteAt(s, s.totalBeats) === -1, `${id}: edges`);
+    const seen = [];
+    let gated = 0;
+    for (let pos = -1; pos < s.totalBeats + 1; pos += 0.02) {
+      const f = demoFrame(s, pos, 80);
+      if (f.midi != null && seen[seen.length - 1] !== f.view.index) seen.push(f.view.index);
+      if (f.midi != null) assert(f.midi === s.notes[f.view.index].midi, `${id}: plays the shown note`);
+      if (f.view.gate === 0) gated++;
+      if (pos < 0) assert(f.view.countIn === 1 && f.midi == null, 'one-beat lead-in, silent');
+      if (f.done) { assert(pos >= s.totalBeats, 'ends after the last note'); break; }
+    }
+    assert(seen.length === s.notes.length && seen.every((v, k) => v === k), `${id}: ${seen.length}/${s.notes.length} notes in order`);
+    assert(gated > 0, `${id}: a short dip between notes so repeats are heard`);
+  }
 });
 test('String lessons (in time): nothing moves until the run starts, then a 4-beat count-in', () => {
   const run = new StringTimedRun(song('buns'), { bpm: 60 });

@@ -206,6 +206,8 @@ body:not(.lesson) .lesson-only, body.lesson .free-only, body:not(.lesson-time) .
 .cycle-btn.learn { background: rgba(125,255,176,0.12); box-shadow: inset 0 0 0 1px rgba(125,255,176,0.4); }
 .cycle-btn.learn .k, .cycle-btn.learn .v { color: #b9ffd6; }
 #songBtn .v { white-space: nowrap; }
+.cycle-btn.listen.on { background: rgba(255,215,106,0.16); box-shadow: inset 0 0 0 1px rgba(255,215,106,0.55); }
+.cycle-btn.listen.on .v { color: #ffe39a; }
 #songKey .won { color: #ffd76a; letter-spacing: 1px; }
 body.lesson .coach { border-color: rgba(125,255,176,0.45); box-shadow: 0 10px 40px rgba(0,0,0,0.4); animation: none; }
 body.lesson .coach .step { background: linear-gradient(135deg, #7dffb0, #78e0ff); }
@@ -235,3 +237,5 @@ body.lesson .toast.show { transform: translate(-50%, 0); }
    give the Snap choices a row of their own. */
 @media (max-width: 900px) { .toolbar .volume { display: none; } }
 @media (max-width: 430px) { .toolbar .seg { order: 5; } }
+/* A narrow phone in a lesson has five lesson buttons: help steps aside to keep one row. */
+@media (max-width: 430px) { body.lesson #help { display: none; } }

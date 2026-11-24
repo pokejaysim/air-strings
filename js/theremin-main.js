@@ -8,7 +8,7 @@ import {
   THEREMIN_SCALES, RANGES, VOLUME_FLOOR,
 } from './theremin-map.js';
 import { midiToFreq, noteName } from './pitch.js';
-import { SONGS, TEMPOS, buildSong, lessonRange, Lesson } from './lessons.js';
+import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame } from './lessons.js';
 import { drawRibbon } from './lesson-view.js';
 
 const $ = (id) => document.getElementById(id);
@@ -52,6 +52,7 @@ const lesson = {
   tempo: store.get('theremin.tempo', 'slow'),
   song: null, range: null, run: null, view: null,
   lastT: 0, cardShown: false,
+  demo: null, // 'Listen': { pos } while the app plays the song itself
 };
 if (!TEMPOS[lesson.tempo]) lesson.tempo = 'slow';
 
@@ -109,9 +110,25 @@ function refreshLessonLabels() {
   $('songVal').textContent = def.short || def.title;
   $('stepVal').textContent = lesson.mode === 'learn' ? '1 · Learn' : '2 · Play';
   $('speedVal').textContent = TEMPOS[lesson.tempo].label;
+  $('listenVal').textContent = lesson.demo ? 'Stop' : 'Hear it';
+  $('listenBtn').classList.toggle('on', !!lesson.demo);
 }
+/** Listen first: the app plays the song on the ribbon, then hands it back for your turn. */
+function startDemo() {
+  if (!lesson.active) return;
+  loadLesson();
+  lesson.demo = { pos: -1, lastT: performance.now() };
+  refreshLessonLabels();
+}
+function stopDemo(finished) {
+  if (!lesson.demo) return;
+  loadLesson(); // a fresh run for their turn
+  toast(finished ? 'Your turn!' : 'Stopped. Your turn!', 2200);
+}
+const toggleDemo = () => (lesson.demo ? stopDemo(false) : startDemo());
 /** (Re)start the current song in the current step. */
 function loadLesson() {
+  lesson.demo = null;
   lesson.song = buildSong(SONGS[lesson.songIdx]);
   lesson.range = lessonRange(lesson.song);
   lesson.run = new Lesson(lesson.song, { mode: lesson.mode, bpm: TEMPOS[lesson.tempo].bpm });
@@ -123,7 +140,7 @@ function loadLesson() {
   refreshLessonLabels();
 }
 function introToast() {
-  toast(`Song ${lesson.songIdx + 1}: ${lesson.song.title} — ${lesson.song.teaches}.`, 3600);
+  toast(`Song ${lesson.songIdx + 1}: ${lesson.song.title} — ${lesson.song.teaches}. Tap Listen to hear it first.`, 4200);
 }
 function enterLesson() {
   lesson.active = true;
@@ -135,6 +152,7 @@ function enterLesson() {
 }
 function exitLesson() {
   lesson.active = false;
+  lesson.demo = null;
   document.body.classList.remove('lesson');
   $('lessonCard').hidden = true;
   refreshNotes();
@@ -183,6 +201,7 @@ $('learnBtn').addEventListener('click', enterLesson);
 $('exitLessonBtn').addEventListener('click', exitLesson);
 $('songBtn').addEventListener('click', () => setLessonSong(lesson.songIdx + 1));
 $('stepBtn').addEventListener('click', () => setLessonMode(lesson.mode === 'learn' ? 'play' : 'learn'));
+$('listenBtn').addEventListener('click', toggleDemo);
 $('speedBtn').addEventListener('click', () => setLessonTempo(cycle(Object.keys(TEMPOS), lesson.tempo)));
 for (const b of document.querySelectorAll('.toolbar button, .toolbar a')) {
   b.addEventListener('click', () => { b.classList.remove('pressed'); void b.offsetWidth; b.classList.add('pressed'); });
@@ -195,6 +214,7 @@ window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT') return;
   const k = e.key.toLowerCase();
   if (k === 'l') lesson.active ? exitLesson() : enterLesson();
+  else if (k === 'p' && lesson.active) toggleDemo();
   else if (lesson.active && 'avsr'.includes(k)) return; // free-play controls are parked during a lesson
   else if (k === 'a') cycleAssist();
   else if (k === 'v') cycleVoice();
@@ -376,7 +396,19 @@ function frame(now) {
   // Lesson: move the song along, and dip the volume for a moment between
   // notes so repeated notes sound like separate notes.
   let gate = 1;
-  if (lesson.active && lesson.run) {
+  let heard = r; // what the synth plays: you, or the song itself while listening
+  if (lesson.active && lesson.demo) {
+    const d = lesson.demo;
+    d.pos += Math.min(0.1, Math.max(0, (now - d.lastT) / 1000)) * (TEMPOS[lesson.tempo].bpm / 60);
+    d.lastT = now;
+    const f = demoFrame(lesson.song, d.pos, TEMPOS[lesson.tempo].bpm);
+    lesson.view = f.view;
+    gate = f.view.gate;
+    d.reading = f.midi == null ? { ...r, sounding: false, pitchPresent: false, midi: null }
+      : { ...r, sounding: true, pitchPresent: true, midi: f.midi, freq: midiToFreq(f.midi), level: 0.75, tone: 0.45 };
+    heard = d.reading;
+    if (f.done) stopDemo(true);
+  } else if (lesson.active && lesson.run) {
     const dt = Math.min(0.1, Math.max(0, (now - lesson.lastT) / 1000));
     lesson.lastT = now;
     lesson.view = lesson.run.step(r, dt);
@@ -385,8 +417,8 @@ function frame(now) {
   }
   const handGlide = app.cameraOn && !app.mouseMode ? (app.detectInterval / 1000) * 0.6 : 0;
   const glide = Math.max(GLIDE[eff.assist], handGlide);
-  if (gate < 1) synth.update({ ...r, level: r.level * gate }, glide, 0.02);
-  else synth.update(r, glide);
+  if (gate < 1) synth.update({ ...heard, level: heard.level * gate }, glide, 0.02);
+  else synth.update(heard, glide);
 
   if (r.sounding) {
     app.everPlayed = true;
@@ -455,6 +487,7 @@ function coach() {
 function lessonCoach() {
   const v = lesson.view;
   if (!app.started || !$('hint').hidden || !v || v.done || !v.target) return null;
+  if (lesson.demo) return { step: '♪', text: `Listen: ${lesson.song.phrases[v.target.phrase]}`, quiet: true };
   const words = lesson.song.phrases[v.target.phrase];
   const r = app.reading || {};
   const n = v.target.name;
@@ -483,7 +516,7 @@ function render() {
   drawWaveform(r);   // background layer
   drawZones(L, r);
   drawGuides(L, r);
-  if (lesson.active && lesson.view) drawRibbon(ctx, L, lesson.range, lesson.song, lesson.view, r, hueFor);
+  if (lesson.active && lesson.view) drawRibbon(ctx, L, lesson.range, lesson.song, lesson.view, lesson.demo ? lesson.demo.reading : r, hueFor);
   drawTrail();
   drawHands(L, r);
 }
@@ -659,5 +692,5 @@ function label(text, x, y, color, size = 13) {
 // Debug handle (used for automated checks; harmless otherwise).
 window.theremin = {
   app, synth, settings, tracker, state, start, setAssist, setVoice, setScale, setRange,
-  lesson, enterLesson, exitLesson, setLessonSong, setLessonMode, setLessonTempo,
+  lesson, enterLesson, exitLesson, setLessonSong, setLessonMode, setLessonTempo, startDemo, stopDemo,
 };

@@ -20,6 +20,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     step: 'build',          // 'build' | 'play' | 'time'
     tempo: STRING_TEMPOS[store.get('strings.tempo', 'slow')] ? store.get('strings.tempo', 'slow') : 'slow',
     lastBeat: null,         // for the count-in ticks
+    demo: null,             // 'Listen': a run the app plays by itself
     song: null,
     run: null,
     harp: new Map(),        // midi -> AirString; kept between songs, so each song adds to it
@@ -83,11 +84,14 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     $('songVal').textContent = def.short || def.title;
     $('stepVal').textContent = STEP_LABEL[L.step];
     $('speedVal').textContent = STRING_TEMPOS[L.tempo].label;
+    $('listenVal').textContent = L.demo ? 'Stop' : 'Hear it';
+    $('listenBtn').classList.toggle('on', !!L.demo);
     document.body.classList.toggle('lesson-time', L.active && L.step === 'time');
   }
 
   // ---------- flow ----------
   function setStep(step) {
+    stopDemo(true);
     L.step = step;
     interaction.allowDraw = step === 'build';
     L.run = step === 'play' ? new StringSongRun(L.song)
@@ -105,10 +109,10 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     if (miss.length) {
       setStep('build');
       const names = miss.map(letter).join(', ');
-      ui.toast(`Song ${L.songIdx + 1}: ${L.song.title}. ${L.harp.size ? 'Add' : 'First draw'} the string${miss.length > 1 ? 's' : ''} it needs: ${names}.`, 3800);
+      ui.toast(`Song ${L.songIdx + 1}: ${L.song.title}. ${L.harp.size ? 'Add' : 'First draw'} the string${miss.length > 1 ? 's' : ''} it needs: ${names}. Tap Listen to hear it first.`, 4200);
     } else {
       setStep('play');
-      ui.toast(`Song ${L.songIdx + 1}: ${L.song.title}. Your harp already has every string it needs.`, 3200);
+      ui.toast(`Song ${L.songIdx + 1}: ${L.song.title}. Your harp already has every string it needs. Tap Listen to hear it first.`, 3800);
     }
   }
   function enter() {
@@ -128,6 +132,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   }
   function exit() {
     if (!L.active) return;
+    stopDemo(true);
     L.active = false;
     document.body.classList.remove('lesson', 'lesson-time');
     $('lessonCard').hidden = true;
@@ -166,6 +171,45 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       setStep('build');
       ui.toast('Harp cleared. Draw the strings again.', 2400);
     }
+  }
+
+  // ---------- listen first ----------
+  /** The app plays the song itself, lighting each string, so you hear how it goes. */
+  function startDemo() {
+    if (!L.active || !L.song) return;
+    stopDemo(true);
+    $('lessonCard').hidden = true;
+    L.cardShown = false;
+    L.demo = new StringTimedRun(L.song, { bpm: STRING_TEMPOS[L.tempo].bpm, countIn: 1 });
+    L.demo.start(performance.now());
+    refreshLabels();
+  }
+  /** quiet: switching step/song (no message). Otherwise the song is reset for their turn. */
+  function stopDemo(quiet) {
+    if (!L.demo) return;
+    const finished = L.demo.done;
+    L.demo = null;
+    refreshLabels();
+    if (quiet) return;
+    setStep(L.step); // a fresh run for them to try
+    if (L.step === 'build') ui.toast(finished ? 'Now build the strings it needs.' : 'Stopped.', 2200);
+    else ui.toast(finished ? 'Your turn!' : 'Stopped. Your turn!', 2200);
+  }
+  const toggleDemo = () => (L.demo ? stopDemo(false) : startDemo());
+  function demoFrame(now) {
+    const d = L.demo;
+    // Play each note as its time comes.
+    while (!d.done && now >= d.timeOf(d.index)) {
+      const i = d.index, n = L.song.notes[i];
+      d.pluck(n.midi, d.timeOf(i));
+      const s = L.harp.get(n.midi);
+      if (s) interaction.pluck(s, 0.5, 0.6, Math.min(14, s.length * 0.08), app.W, now, 'demo');
+      else interaction.synth.pluck({ freq: midiToFreq(n.midi), amp: 0.6, position: 0.4, pan: 0, stringId: 'demo' + n.midi });
+    }
+    // Light the string about to play.
+    const t = d.target;
+    if (t) { const s = L.harp.get(t.midi); if (s) s.hover = 1; }
+    if (d.done && now - d.timeOf(L.song.notes.length - 1) > L.song.notes[L.song.notes.length - 1].beats * d.beatMs + 400) stopDemo(false);
   }
 
   function startTimed() {
@@ -252,7 +296,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
 
   /** Called for every interaction event (plucks, strums, ...). */
   function onEvent(ev) {
-    if (!L.active || L.step === 'build' || !L.run || L.run.done) return;
+    if (!L.active || L.demo || L.step === 'build' || !L.run || L.run.done) return;
     if (ev.type !== 'pluck' && ev.type !== 'strum') return;
     const midi = ev.string.fixedMidi;
     const now = performance.now();
@@ -272,6 +316,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
 
   // ---------- per-frame ----------
   function frame() {
+    if (L.active && L.demo) { demoFrame(performance.now()); return; }
     if (!L.active || !L.run || L.run.done || L.step === 'build') return;
     if (L.step === 'play') {
       const s = L.harp.get(L.run.target.midi);
@@ -306,6 +351,11 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   function coach() {
     if (!L.active || !app.started || ui.hintOpen || !L.song || L.cardShown) return null;
     const hand = !app.mouseMode;
+    if (L.demo) {
+      if (shortTimed()) return null; // the strings need that room
+      const t = L.demo.target;
+      return { step: '♪', text: t ? `Listen: ${L.song.phrases[t.phrase]}` : 'Listen…', quiet: true };
+    }
     if (L.step === 'build') {
       const miss = missing();
       if (!miss.length) return null;
@@ -346,7 +396,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     const pulse = 0.5 + 0.5 * Math.sin(now / 260);
     ctx.save();
     ctx.lineCap = 'round';
-    if (L.step === 'build') {
+    if (L.step === 'build' && !L.demo) {
       const slots = missingSlots();
       const ring = tol(app.mouseMode ? 'mouse' : 'hand') * 0.6;
       ctx.font = '700 13px ui-rounded, system-ui, sans-serif';
@@ -381,7 +431,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
         ctx.font = '700 13px ui-rounded, system-ui, sans-serif';
         ctx.textAlign = 'center';
       });
-    } else if (L.step === 'play' && L.run && !L.run.done) {
+    } else if (L.step === 'play' && L.run && !L.run.done && !L.demo) {
       const s = L.harp.get(L.run.target.midi);
       if (s) {
         ctx.strokeStyle = `rgba(125,255,176,${0.14 + 0.14 * pulse})`;
@@ -394,9 +444,12 @@ export function createStringLessons({ app, bank, interaction, ui }) {
 
   /** Over everything: the next few notes of the song, under the toolbar. */
   function drawOver(ctx, now) {
-    if (L.active && L.step === 'time' && L.run) { drawTimed(ctx, now ?? performance.now()); return; }
-    if (!L.active || L.step !== 'play' || !L.run || L.run.done) return;
-    const notes = L.song.notes.slice(L.run.index, L.run.index + 6);
+    now = now ?? performance.now();
+    if (L.active && L.demo && L.step === 'time') { drawTimed(ctx, now, L.demo); return; }
+    if (L.active && L.step === 'time' && L.run && !L.demo) { drawTimed(ctx, now, L.run); return; }
+    const run = L.demo || (L.step === 'play' ? L.run : null);
+    if (!L.active || !run || run.done) return;
+    const notes = L.song.notes.slice(run.index, run.index + 6);
     const tb = $('toolbar').getBoundingClientRect();
     const y = tb.bottom + 26, gap = 34;
     let x = app.W / 2 - ((notes.length - 1) * gap) / 2;
@@ -421,8 +474,8 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   }
 
   /** Playing in time: notes travel along each string to the now-line. */
-  function drawTimed(ctx, now) {
-    const run = L.run, song = L.song;
+  function drawTimed(ctx, now, run) {
+    const song = L.song;
     const slots = L.slots.filter((s) => L.harp.has(s.midi));
     if (!slots.length) return;
     const tb = $('toolbar').getBoundingClientRect();
@@ -495,7 +548,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       const sl = slotFor(song.notes[ev.i].midi);
       if (!sl) continue;
       const [x, y] = at(sl, g.now);
-      const label = { perfect: 'Perfect', good: 'Good', miss: 'Miss' }[ev.grade];
+      const label = run === L.demo ? '' : { perfect: 'Perfect', good: 'Good', miss: 'Miss' }[ev.grade];
       ctx.globalAlpha = 1 - age;
       ctx.font = '800 14px ui-rounded, system-ui, sans-serif';
       ctx.fillStyle = ev.grade === 'perfect' ? '#7dffb0' : ev.grade === 'good' ? '#cfe9ff' : '#ff8a96';
@@ -534,10 +587,12 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   $('songBtn').addEventListener('click', () => setSong(L.songIdx + 1));
   $('stepBtn').addEventListener('click', toggleStep);
   $('speedBtn').addEventListener('click', cycleTempo);
+  $('listenBtn').addEventListener('click', toggleDemo);
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT' || !app.started) return;
     const k = e.key.toLowerCase();
     if (k === 'l') { L.active ? exit() : enter(); e.preventDefault(); }
+    else if (k === 'p' && L.active) { toggleDemo(); e.preventDefault(); }
     else if (k === 'escape' && L.active && !ui.hintOpen) exit();
   });
   // The toolbar changes size between free play and lessons: keep the harp clear of it.
@@ -546,6 +601,6 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   return {
     state: L,
     get active() { return L.active; },
-    enter, exit, setSong, setStep, setTempo, startTimed, toggleStep, onEvent, frame, coach, drawUnder, drawOver, resize,
+    enter, exit, setSong, setStep, setTempo, startTimed, startDemo, stopDemo, toggleStep, onEvent, frame, coach, drawUnder, drawOver, resize,
   };
 }

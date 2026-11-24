@@ -215,3 +215,36 @@ export class Lesson {
     return { hits, total, ratio, stars: this.mode === 'learn' ? (this.done ? 3 : 0) : starsFor(ratio) };
   }
 }
+
+/** Index of the note sounding at song position `pos` (beats), or -1 between/outside notes. */
+export function noteAt(song, pos) {
+  for (let i = 0; i < song.notes.length; i++) {
+    const n = song.notes[i];
+    if (pos < n.start) return -1;
+    if (pos < n.start + n.beats) return i;
+  }
+  return -1;
+}
+
+/**
+ * "Listen first": the song played for you, as a lesson view (for the ribbon)
+ * and a perfect reading (for the synth). `pos` starts at -1 (one beat lead-in).
+ */
+export function demoFrame(song, pos, bpm) {
+  const i = noteAt(song, pos);
+  const n = i >= 0 ? song.notes[i] : null;
+  const next = pos < 0 ? 0 : song.notes.findIndex((m) => m.start >= pos);
+  const index = i >= 0 ? i : next < 0 ? song.notes.length : next;
+  const sinceStart = n ? (pos - n.start) * (60 / bpm) : 1;
+  const gate = n && i > 0 && sinceStart < GATE_SEC ? 0 : 1;
+  return {
+    view: {
+      mode: 'play', pos, index, target: song.notes[index] || null, total: song.notes.length,
+      onPitch: !!n, direction: 0, gate, started: true, done: false,
+      countIn: pos < 0 ? Math.ceil(-pos) : 0,
+      hit: song.notes.map((_, k) => (k < index ? true : null)),
+    },
+    midi: n ? n.midi : null,
+    done: pos >= song.totalBeats + 0.3,
+  };
+}

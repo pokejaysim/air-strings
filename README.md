@@ -63,6 +63,10 @@ same five songs as the theremin, easiest first).
    Slow 50, Medium 66 and Fast 84 bpm, a little slower than the theremin's
    because a pluck takes longer than a slide.
 
+**Listen** (or <kbd>P</kbd>) plays the song for you first, at the chosen speed:
+each string lights and sounds in turn (in step 1, before the strings exist,
+you still hear the notes). When it ends, the song is reset for your turn.
+
 The harp has six strings, C4 to A4, and is kept between songs, so each song
 only asks for the strings you don't have yet (Hot Cross Buns needs C, D, E;
 Mary Had a Little Lamb then adds G). Pressing **Step** during the build
@@ -110,6 +114,10 @@ Little Star and Ode to Joy.
    A note counts if you stayed on it for a fair share of its length (there is
    a short grace period to get there). Hitting 90% of the notes earns three
    stars, 70% two, 40% one; your best is kept per song.
+
+**Listen** (or <kbd>P</kbd>) plays the song for you first: the ribbon moves
+in time and the marker rides each note while the theremin sings it. When it
+ends, the song is reset for your turn.
 
 During a lesson the range is fitted to the song so its notes sit far apart,
 the scale is C major, notes snap, and the volume dips for a moment between

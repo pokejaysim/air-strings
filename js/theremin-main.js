@@ -11,7 +11,8 @@ import { midiToFreq, noteName } from './pitch.js';
 import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame, streakMilestone, COUNT_IN_BEATS } from './lessons.js';
 import { drawRibbon, ribbonGeometry } from './lesson-view.js';
 import { FX, drawStreak } from './fx.js';
-import { createSongPicker } from './song-picker.js';
+import { createSongPicker, suggestedSong } from './song-picker.js';
+import { SignWatcher, drawSignRings, signsEnabled, setSignsEnabled } from './hand-signs.js';
 
 // Right after an update a browser can pair a cached older page with newer
 // scripts, so a missing element gets a stand-in instead of stopping the app.
@@ -28,6 +29,7 @@ const tracker = new HandTracker();
 const hands = new HandGestures();
 const mouse = new PointerGestures(canvas);
 const state = new ThereminState();
+const signs = new SignWatcher();
 
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
@@ -86,6 +88,9 @@ const app = {
   delegate: '',
   notes: [],
   presses: new Map(), // pointer id -> { btn, t0, done }
+  signsOn: signsEnabled(),
+  signRings: [],
+  fistMute: false, // a held fist silences the instrument
 };
 
 // ---------------- Controls ----------------
@@ -409,6 +414,7 @@ function frame(now) {
     handlePinchPresses(handPtrs, now);
   }
   app.handPtrs = handPtrs;
+  watchSigns(handPtrs, now);
 
   // Playing points. Hands use the palm (steady while pinching). A hand that is
   // reaching into the toolbar doesn't play (its role is simply paused).
@@ -459,6 +465,7 @@ function frame(now) {
     streak.last = c;
     if (lesson.view.done && !lesson.cardShown) finishLesson();
   }
+  if (app.fistMute) heard = { ...heard, sounding: false };
   const handGlide = app.cameraOn && !app.mouseMode ? (app.detectInterval / 1000) * 0.6 : 0;
   const glide = Math.max(GLIDE[eff.assist], handGlide);
   if (gate < 1) synth.update({ ...heard, level: heard.level * gate }, glide, 0.02);
@@ -489,6 +496,59 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// ---------------- Hand signs ----------------
+// Hold a shape for a moment: a fist silences (while held), thumbs up says yes,
+// thumbs down restarts a lesson song, victory switches instrument, "I love you"
+// throws confetti.
+function lessonSign(name, dry = false) {
+  if (!lesson.active) return false;
+  if (name === 'Thumb_Up') {
+    if (!$('lessonCard').hidden) { if (!dry) $('lessonPrimary').click(); return true; }
+    if (picker.isOpen) {
+      if (!dry) { const i = suggestedSong(SONGS.map((d) => [{ stars: bestStars(d.id) }]), lesson.songIdx); picker.close(); setLessonSong(i); }
+      return true;
+    }
+    return false;
+  }
+  if (name === 'Thumb_Down') {
+    if (picker.isOpen) return false;
+    if (!dry) { loadLesson(); say('Starting the song again.', 1800); }
+    return true;
+  }
+  return false;
+}
+function canSign(name) {
+  if (!app.started || !$('hint').hidden) return false;
+  if (name === 'Closed_Fist') return app.fistMute || !!(app.reading && app.reading.sounding);
+  if (name === 'Thumb_Up' || name === 'Thumb_Down') return lessonSign(name, true);
+  return true; // Victory, ILoveYou
+}
+function runSign(name) {
+  if (name === 'Thumb_Up' || name === 'Thumb_Down') lessonSign(name);
+  else if (name === 'Victory') {
+    toast('Off to Air Strings…', 1200);
+    setTimeout(() => { location.href = 'index.html'; }, 450);
+  } else if (name === 'ILoveYou') fx.confetti(app.W, app.H);
+  // Closed_Fist works while held: see watchSigns.
+}
+function watchSigns(handPtrs, now) {
+  if (!app.signsOn || app.mouseMode) { app.signRings = []; app.fistMute = false; return; }
+  const r = signs.update(handPtrs, now, canSign);
+  app.signRings = r.rings;
+  const mute = r.held.has('Closed_Fist');
+  if (mute && !app.fistMute) (lesson.active ? say : toast)('✊ Silenced. Open your hand to play.', 1400);
+  app.fistMute = mute;
+  for (const f of r.fired) runSign(f.name);
+}
+function setSigns(on) {
+  app.signsOn = on;
+  setSignsEnabled(on);
+  signs.reset();
+  $('signsVal').textContent = on ? 'On' : 'Off';
+}
+$('signsBtn').addEventListener('click', () => setSigns(!app.signsOn));
+setSigns(app.signsOn);
 
 /**
  * Pinch-to-press for hands: the pinch has to stay on the same button for a
@@ -593,6 +653,7 @@ function render() {
   fx.update((now - (fxT || now)) / 1000);
   fxT = now;
   fx.draw(ctx);
+  drawSignRings(ctx, app.signRings);
 }
 
 // Glow without shadowBlur (slow on phones): a wide faint stroke under a thin bright one.
@@ -767,4 +828,5 @@ function label(text, x, y, color, size = 13) {
 window.theremin = {
   app, synth, settings, tracker, state, start, setAssist, setVoice, setScale, setRange,
   lesson, picker, enterLesson, exitLesson, setLessonSong, setLessonMode, setLessonTempo, startDemo, stopDemo,
+  signs, setSigns,
 };

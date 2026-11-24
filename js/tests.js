@@ -11,6 +11,7 @@ import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GA
 import { ribbonGeometry } from './lesson-view.js';
 import { suggestedSong } from './song-picker.js';
 import { parseHands } from './tracking.js';
+import { SignWatcher, SIGNS, GAP_MS, SHOW_AFTER_MS, COOLDOWN_MS, MIN_SCORE } from './hand-signs.js';
 import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun, StringTimedRun, timedGeometry, STRING_TEMPOS, PERFECT_SEC, WINDOW_SEC } from './string-lessons.js';
 
 const results = [];
@@ -898,6 +899,95 @@ test('Tracker: plain Hand Landmarker results still work (no gestures)', () => {
   const hands = parseHands({ landmarks: [pts], handednesses: [[{ categoryName: 'Right', score: 0.95 }]] });
   assert(hands.length === 1 && hands[0].handedness === 'Right' && hands[0].gesture === null, JSON.stringify(hands[0].gesture));
   assert(parseHands({ landmarks: [] }).length === 0 && parseHands(null).length === 0, 'empty results');
+});
+
+// ---- hand signs ----
+const signPtr = (gesture, extra = {}) => ({ id: 'hand:h1', source: 'hand', x: 300, y: 300, palmX: 300, palmY: 320, handSize: 100, pinching: false, lost: false, gesture, gestureScore: 0.9, fist: gesture === 'Closed_Fist', ...extra });
+test('Hand signs: a fist fires once, only after it is held', () => {
+  const w = new SignWatcher();
+  let t = 1000, fired = [], held;
+  const run = (ms, p = signPtr('Closed_Fist')) => { for (let e = 0; e < ms; e += 33) { const r = w.update([p], (t += 33)); fired.push(...r.fired); held = r.held; } };
+  run(SIGNS.Closed_Fist.hold - 80);
+  assert(fired.length === 0, 'fired too early');
+  run(150);
+  assert(fired.length === 1 && fired[0].name === 'Closed_Fist', `fired ${fired.length}`);
+  assert(held.has('Closed_Fist'), 'still held');
+  run(2000);
+  assert(fired.length === 1, 'holding longer must not fire again');
+  run(GAP_MS + 100, signPtr(null));
+  assert(!held.has('Closed_Fist'), 'released');
+});
+test('Hand signs: a brief flicker keeps the hold; a real change restarts it', () => {
+  const w = new SignWatcher();
+  let t = 0, fired = [];
+  const f = (p) => fired.push(...w.update([p], (t += 33)).fired);
+  for (let i = 0; i < 12; i++) f(signPtr('Thumb_Up'));      // ~400 ms
+  for (let i = 0; i < 3; i++) f(signPtr(null));             // ~100 ms dropout, under GAP_MS
+  for (let i = 0; i < 14; i++) f(signPtr('Thumb_Up'));      // ~460 ms more: total > 800
+  assert(fired.length === 1 && fired[0].name === 'Thumb_Up', 'flicker should not restart the hold');
+  const w2 = new SignWatcher(); fired = []; t = 0;
+  const g = (p) => fired.push(...w2.update([p], (t += 33)).fired);
+  for (let i = 0; i < 20; i++) g(signPtr('Thumb_Up'));     // 660 ms
+  for (let i = 0; i < 20; i++) g(signPtr('Thumb_Down'));   // switch: restarts
+  assert(fired.length === 0, 'switching sign must restart the hold');
+});
+test('Hand signs: pinching, unsure, unwanted or mouse pointers never sign', () => {
+  const w = new SignWatcher();
+  let t = 0, fired = [];
+  const f = (p, can) => fired.push(...w.update([p], (t += 33), can).fired);
+  for (let i = 0; i < 60; i++) f(signPtr('Closed_Fist', { pinching: true }));
+  for (let i = 0; i < 60; i++) f(signPtr('Victory', { gestureScore: MIN_SCORE - 0.1 }));
+  for (let i = 0; i < 60; i++) f(signPtr('Thumb_Up'), () => false);
+  for (let i = 0; i < 60; i++) f(signPtr('Closed_Fist', { fist: false }));
+  for (let i = 0; i < 60; i++) f(signPtr('Victory', { source: 'mouse' }));
+  for (let i = 0; i < 60; i++) f(signPtr('Pointing_Up'));
+  for (let i = 0; i < 60; i++) f(signPtr('Open_Palm'));
+  assert(fired.length === 0, JSON.stringify(fired));
+});
+test('Hand signs: rings wait a moment, fill up, then pop', () => {
+  const w = new SignWatcher();
+  let r = w.update([signPtr('Victory')], 0);
+  assert(r.rings.length === 0, 'no ring on the first frame');
+  r = w.update([signPtr('Victory')], SHOW_AFTER_MS + 10);
+  assert(r.rings.length === 1 && r.rings[0].emoji === SIGNS.Victory.emoji && r.rings[0].progress > 0 && r.rings[0].progress < 0.3, JSON.stringify(r.rings));
+  assert(r.rings[0].y < 320, 'ring sits above the hand');
+  r = w.update([signPtr('Victory')], SIGNS.Victory.hold + 5);
+  assert(r.fired.length === 1 && r.rings[0].progress === 1, 'fires when full');
+  r = w.update([signPtr('Victory')], SIGNS.Victory.hold + 300);
+  assert(r.rings.length === 1 && r.rings[0].pop > 0.4, 'pops');
+  r = w.update([signPtr('Victory')], SIGNS.Victory.hold + 2000);
+  assert(r.rings.length === 0, 'then goes away');
+});
+test('Hand signs: one action at a time (a short cooldown)', () => {
+  const w = new SignWatcher();
+  const a = signPtr('ILoveYou'), b = signPtr('ILoveYou', { id: 'hand:h2', x: 700, palmX: 700 });
+  let t = 0, fired = [];
+  for (let i = 0; i < 40; i++) fired.push(...w.update([a, b], (t += 33)).fired);
+  assert(fired.length === 1, `both hands fired: ${fired.length}`);
+  assert(COOLDOWN_MS < 1500, 'cooldown stays short');
+});
+test('A fist never starts a pinch, but a pinch with curled fingers still does', () => {
+  const video = { videoWidth: 1280, videoHeight: 720 };
+  const hand = (curled, gesture) => {
+    const L = fakeHand(0.01)[0].landmarks.map((p) => ({ ...p }));
+    if (curled) { L[8] = { x: 0.465, y: 0.47, z: 0 }; L[4] = { x: 0.47, y: 0.475, z: 0 }; }
+    return [{ landmarks: L, handedness: 'Right', score: 0.99, gesture }];
+  };
+  const fist = { name: 'Closed_Fist', score: 0.9 };
+  let g = new HandGestures(), t = 0, p;
+  for (let i = 0; i < 5; i++) p = g.update(hand(true, fist), video, 1280, 720, (t += 33))[0];
+  assert(!p.pinching && p.fist && p.gesture === 'Closed_Fist', `fist pinched: ${JSON.stringify({ pinching: p.pinching, fist: p.fist })}`);
+  g = new HandGestures(); t = 0;
+  for (let i = 0; i < 5; i++) p = g.update(hand(true, null), video, 1280, 720, (t += 33))[0];
+  assert(p.pinching && !p.fist, 'the same hand with no fist label is a pinch');
+  g = new HandGestures(); t = 0;
+  for (let i = 0; i < 5; i++) p = g.update(hand(false, fist), video, 1280, 720, (t += 33))[0];
+  assert(p.pinching && !p.fist, 'labelled fist but index finger long: still a pinch');
+  // Already pinching (drawing), then the label says fist: the pinch carries on.
+  g = new HandGestures(); t = 0;
+  for (let i = 0; i < 5; i++) p = g.update(hand(true, null), video, 1280, 720, (t += 33))[0];
+  for (let i = 0; i < 5; i++) p = g.update(hand(true, fist), video, 1280, 720, (t += 33))[0];
+  assert(p.pinching, 'a fist label mid-draw must not drop the string');
 });
 
 // ---- render ----

@@ -6,7 +6,7 @@ import { harpSlots, matchSlot, drawFeedback, whiteNoteForLength, StringSongRun, 
 import { lengthFraction, midiToFreq, noteName, noteHue } from './pitch.js';
 import { FX, drawStreak } from './fx.js';
 import { roundRect } from './strings.js';
-import { createSongPicker } from './song-picker.js';
+import { createSongPicker, suggestedSong } from './song-picker.js';
 
 // Right after an update a browser can pair a cached older page with newer
 // scripts, so a missing element gets a stand-in instead of stopping the app.
@@ -664,9 +664,10 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   }
 
   // ---------- song picker ----------
+  const pickerScores = () => SONGS.map((d) => [{ label: 'Pace', stars: paceStars(d.id) }, { label: 'In time', stars: timeStars(d.id) }]);
   const picker = createSongPicker({
     songs: SONGS,
-    scores: () => SONGS.map((d) => [{ label: 'Pace', stars: paceStars(d.id) }, { label: 'In time', stars: timeStars(d.id) }]),
+    scores: () => pickerScores(),
     current: () => L.songIdx,
     onPick: (i) => setSong(i),
     onOpen: () => {
@@ -676,6 +677,30 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       if (L.step === 'time') setStep('time');
     },
   });
+
+  // ---------- hand signs ----------
+  /**
+   * Thumbs up says yes to the big button (or picks the song under the picker);
+   * thumbs down restarts the song. With dry = true, only says whether it would act.
+   */
+  function sign(name, dry = false) {
+    if (!L.active || ui.hintOpen) return false;
+    const card = !$('lessonCard').hidden;
+    if (name === 'Thumb_Up') {
+      if (card) { if (!dry) $('lessonPrimary').click(); return true; }
+      if (picker.isOpen) {
+        if (!dry) { const i = suggestedSong(pickerScores(), L.songIdx); picker.close(); setSong(i); }
+        return true;
+      }
+      return false;
+    }
+    if (name === 'Thumb_Down') {
+      if (picker.isOpen || L.step === 'build') return false;
+      if (!dry) { setStep(L.step); say('Starting the song again.', 1800); }
+      return true;
+    }
+    return false;
+  }
 
   // ---------- controls ----------
   refreshLearnBadge();
@@ -698,6 +723,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   return {
     state: L,
     get active() { return L.active; },
-    picker, enter, exit, setSong, setStep, setTempo, startTimed, startDemo, stopDemo, toggleStep, onEvent, frame, coach, drawUnder, drawOver, resize,
+    picker, enter, exit, setSong, setStep, setTempo, startTimed, startDemo, stopDemo, toggleStep, onEvent, frame, coach, drawUnder, drawOver, resize, sign,
+    confetti: () => fx.confetti(app.W, app.H),
   };
 }

@@ -179,6 +179,14 @@ export class StringBank {
     return s;
   }
   undo() { return this.strings.pop() || null; }
+  /** Stop every string vibrating (a fist mutes the harp). Returns how many were ringing. */
+  damp() {
+    let n = 0;
+    for (const s of this.strings) if (!s.pull && s.isMoving()) { s.vibAge = 1e4; s.glow = 0; n++; }
+    return n;
+  }
+  /** Is any string still ringing? */
+  get ringing() { return this.strings.some((s) => !s.pull && s.isMoving()); }
   clear() { const n = this.strings.length; this.strings = []; return n; }
 
   setScale(scale) {

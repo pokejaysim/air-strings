@@ -12,6 +12,11 @@ const THUMB_TIP = 4, INDEX_TIP = 8, WRIST = 0, INDEX_MCP = 5, MIDDLE_MCP = 9, PI
 export const PINCH_ON = 0.32;
 export const PINCH_OFF = 0.48;
 export const PINCH_CONFIRM_FRAMES = 2;
+// A fist is not a pinch, though its thumb and index tip are close. It only
+// counts as a fist when the model says so AND the index tip is curled into
+// its knuckle (a pinch with the other fingers curled keeps the index long).
+export const FIST_CURL = 0.35;
+export const FIST_SCORE = 0.5;
 const LOST_AFTER_MS = 220;
 
 /** Maps normalized video coords to mirrored screen coords for object-fit: cover. */
@@ -110,8 +115,13 @@ export class HandGestures {
 
         // Use raw tips for the pinch decision (less lag), smoothed for position.
         st.pinchRatio = Math.hypot(th.x - ix.x, th.y - ix.y) / Math.max(20, st.handSize);
+        st.gesture = det.gesture || null;
+        st.indexCurl = Math.hypot(ix.x - imcp.x, ix.y - imcp.y) / Math.max(20, st.handSize);
+        st.fist = !!st.gesture && st.gesture.name === 'Closed_Fist' && st.gesture.score >= FIST_SCORE && st.indexCurl < FIST_CURL;
         const was = st.pinching;
-        if (!was) {
+        if (!was && st.fist) {
+          st.closeFrames = 0; // making a fist never starts a pinch
+        } else if (!was) {
           // Fingers must stay together for 2 detection frames in a row, so a
           // one-frame blip (motion blur in a fast swipe) isn't a pinch.
           st.closeFrames = st.pinchRatio < PINCH_ON ? (st.closeFrames || 0) + 1 : 0;
@@ -166,6 +176,9 @@ export class HandGestures {
       lost,
       pinchRatio: st.pinchRatio,
       handSize: st.handSize,
+      gesture: lost || !st.gesture ? null : st.gesture.name,
+      gestureScore: lost || !st.gesture ? 0 : st.gesture.score,
+      fist: !lost && !!st.fist,
     };
   }
 }

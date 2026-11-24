@@ -7,6 +7,7 @@ import { StringBank, roundRect } from './strings.js';
 import { Interaction } from './interaction.js';
 import { UI } from './ui.js';
 import { createStringLessons } from './string-lesson-main.js';
+import { SignWatcher, drawSignRings, signsEnabled, setSignsEnabled } from './hand-signs.js';
 
 const params = new URLSearchParams(location.search);
 const video = document.getElementById('video');
@@ -18,6 +19,7 @@ const bank = new StringBank();
 const tracker = new HandTracker();
 const hands = new HandGestures();
 const mouse = new PointerGestures(canvas);
+const signs = new SignWatcher();
 
 const app = {
   mouseMode: params.get('mouse') === '1',
@@ -30,6 +32,8 @@ const app = {
   plucked: false,       // has the user played a string yet?
   strummed: false,
   strumTipUntil: 0,     // show the strum tip briefly after the first pluck
+  signsOn: signsEnabled(),
+  signRings: [],
 };
 
 let ui, lessons; // assigned below
@@ -166,6 +170,7 @@ function frame(now) {
     }
   }
   app.pointers = pointers;
+  watchSigns(pointers, now);
 
   interaction.update(pointers, W, H, now);
   bank.update(dt);
@@ -200,6 +205,43 @@ function coach(now) {
   return null;
 }
 
+// ---------------- Hand signs ----------------
+// Hold a shape for a moment: fist mutes, thumbs up says yes, thumbs down goes
+// back, victory switches instrument, "I love you" throws confetti.
+function canSign(name) {
+  if (!app.started || ui.hintOpen) return false;
+  if (name === 'Closed_Fist') return bank.ringing;
+  if (name === 'Thumb_Up') return lessons.sign(name, true);
+  if (name === 'Thumb_Down') return lessons.active ? lessons.sign(name, true) : bank.strings.length > 0;
+  return true; // Victory, ILoveYou
+}
+function runSign(name) {
+  if (name === 'Closed_Fist') { synth.stopAll(); bank.damp(); }
+  else if (name === 'Thumb_Up') lessons.sign(name);
+  else if (name === 'Thumb_Down') {
+    if (lessons.active) lessons.sign(name);
+    else if (bank.undo()) ui.toast('Removed last string');
+  } else if (name === 'Victory') {
+    ui.toast('Off to the theremin…', 1200);
+    setTimeout(() => { location.href = 'theremin.html'; }, 450);
+  } else if (name === 'ILoveYou') lessons.confetti();
+}
+function watchSigns(pointers, now) {
+  if (!app.signsOn || app.mouseMode) { app.signRings = []; return; }
+  const r = signs.update(pointers, now, canSign);
+  app.signRings = r.rings;
+  for (const f of r.fired) runSign(f.name);
+}
+function setSigns(on) {
+  app.signsOn = on;
+  setSignsEnabled(on);
+  signs.reset();
+  const v = document.getElementById('signsVal');
+  if (v) v.textContent = on ? 'On' : 'Off';
+}
+document.getElementById('signsBtn')?.addEventListener('click', () => setSigns(!app.signsOn));
+setSigns(app.signsOn);
+
 // ---------------- Render ----------------
 function render(pointers, now) {
   const { W, H, dpr } = app;
@@ -211,6 +253,7 @@ function render(pointers, now) {
   for (const p of interaction.previews) drawPreview(p);
   lessons.drawOver(ctx, now);
   for (const p of pointers) drawPointer(p);
+  drawSignRings(ctx, app.signRings);
 }
 
 function drawPreview(p) {
@@ -289,4 +332,4 @@ function drawPointer(p) {
 }
 
 // Debug handle (used for automated checks; harmless otherwise).
-window.airStrings = { app, bank, synth, interaction, tracker, start, lessons };
+window.airStrings = { app, bank, synth, interaction, tracker, start, lessons, signs, setSigns };

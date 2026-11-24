@@ -97,7 +97,7 @@ export class Interaction {
         const btn = el && el.closest('button:not([disabled])');
         // Only the app's own buttons can be pressed by a pinch (never links:
         // an off-target pinch shouldn't navigate away mid-performance).
-        if (btn && btn.closest('.toolbar, .hint, .banner, .sound-banner, .lesson-card')) { btn.click(); st.action = 'ui'; }
+        if (btn && btn.closest('.toolbar, .hint, .banner, .sound-banner, .lesson-card, .song-picker')) { btn.click(); st.action = 'ui'; }
       }
 
       if (st.action === 'ui') {

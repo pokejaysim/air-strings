@@ -8,6 +8,7 @@ import { HandGestures, videoToScreen, PINCH_ON, PINCH_OFF } from './gestures.js'
 import * as TH from './theremin-map.js';
 import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GATE_SEC, COUNT_IN_BEATS, noteAt, demoFrame } from './lessons.js';
 import { ribbonGeometry } from './lesson-view.js';
+import { suggestedSong } from './song-picker.js';
 import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun, StringTimedRun, timedGeometry, STRING_TEMPOS, PERFECT_SEC, WINDOW_SEC } from './string-lessons.js';
 
 const results = [];
@@ -714,6 +715,12 @@ test('String lessons (play): one strum across E, D, C plays three notes', () => 
   let t = 0;
   while (!clean.done) clean.pluck(clean.target.midi, (t += 300));
   assert(clean.result().stars === 3, 'a clean run earns three stars');
+});
+test('Song picker suggests the first song without a star, else stays put', () => {
+  const sc = (...st) => st.map((n) => [{ label: 'a', stars: n }, { label: 'b', stars: 0 }]);
+  assert(suggestedSong(sc(0, 0, 0), 2) === 0, 'nothing played: song 1');
+  assert(suggestedSong(sc(3, 1, 0, 0), 0) === 2, 'first starless song');
+  assert(suggestedSong(sc(3, 2, 1), 1) === 1, 'all starred: the current song');
 });
 test('Listen first: the demo walks through every note in order, on the beat, and then ends', () => {
   for (const id of ['buns', 'mary', 'sheep', 'twinkle', 'ode']) {

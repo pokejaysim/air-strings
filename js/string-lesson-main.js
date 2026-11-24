@@ -5,6 +5,7 @@ import { SONGS, buildSong } from './lessons.js';
 import { harpSlots, matchSlot, drawFeedback, whiteNoteForLength, StringSongRun, StringTimedRun, STRING_TEMPOS, timedGeometry } from './string-lessons.js';
 import { lengthFraction, midiToFreq, noteName } from './pitch.js';
 import { roundRect } from './strings.js';
+import { createSongPicker } from './song-picker.js';
 
 // Right after an update a browser can pair a cached older page with newer
 // scripts, so a missing element gets a stand-in instead of stopping the app.
@@ -133,10 +134,13 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     computeSlots();
     placeHarp();
     loadSong();
+    $('toast').classList.remove('show'); // picking a song introduces it
+    picker.open(); // start by choosing a song
   }
   function exit() {
     if (!L.active) return;
     stopDemo(true);
+    picker.close();
     L.active = false;
     document.body.classList.remove('lesson', 'lesson-time');
     $('lessonCard').hidden = true;
@@ -320,6 +324,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
 
   // ---------- per-frame ----------
   function frame() {
+    if (picker.isOpen) return;
     if (L.active && L.demo) { demoFrame(performance.now()); return; }
     if (!L.active || !L.run || L.run.done || L.step === 'build') return;
     if (L.step === 'play') {
@@ -353,7 +358,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   }
 
   function coach() {
-    if (!L.active || !app.started || ui.hintOpen || !L.song || L.cardShown) return null;
+    if (!L.active || !app.started || ui.hintOpen || !L.song || L.cardShown || picker.isOpen) return null;
     const hand = !app.mouseMode;
     if (L.demo) {
       if (shortTimed()) return null; // the strings need that room
@@ -585,10 +590,24 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     placeHarp();
   }
 
+  // ---------- song picker ----------
+  const picker = createSongPicker({
+    songs: SONGS,
+    scores: () => SONGS.map((d) => [{ label: 'Pace', stars: paceStars(d.id) }, { label: 'In time', stars: timeStars(d.id) }]),
+    current: () => L.songIdx,
+    onPick: (i) => setSong(i),
+    onOpen: () => {
+      // Nothing should play on under the picker.
+      stopDemo(true);
+      $('lessonCard').hidden = true;
+      if (L.step === 'time') setStep('time');
+    },
+  });
+
   // ---------- controls ----------
   $('learnBtn').addEventListener('click', enter);
   $('exitLessonBtn').addEventListener('click', exit);
-  $('songBtn').addEventListener('click', () => setSong(L.songIdx + 1));
+  $('songBtn').addEventListener('click', () => picker.open());
   $('stepBtn').addEventListener('click', toggleStep);
   $('speedBtn').addEventListener('click', cycleTempo);
   $('listenBtn').addEventListener('click', toggleDemo);
@@ -605,6 +624,6 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   return {
     state: L,
     get active() { return L.active; },
-    enter, exit, setSong, setStep, setTempo, startTimed, startDemo, stopDemo, toggleStep, onEvent, frame, coach, drawUnder, drawOver, resize,
+    picker, enter, exit, setSong, setStep, setTempo, startTimed, startDemo, stopDemo, toggleStep, onEvent, frame, coach, drawUnder, drawOver, resize,
   };
 }

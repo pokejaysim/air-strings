@@ -43,7 +43,10 @@ full volume, just like a real one.
 
 ### Learn a song
 
-Press **Learn** to be taught a tune on a small harp you build yourself (the
+Press **Learn** (or tap the song name in a lesson) to open the song list: every
+song with what it teaches and the stars you've earned, at your own pace and in
+time. The first song without a star is marked *Next up*. Then you're taught the
+tune on a small harp you build yourself (the
 same five songs as the theremin, easiest first).
 
 1. **Step 1 · Build.** Each string the song needs has a dashed outline of
@@ -102,7 +105,9 @@ hand reaching into the toolbar stops playing.
 
 ### Learn a song
 
-Press **Learn** to be taught a tune. Five public-domain songs, easiest first:
+Press **Learn** (or tap the song name in a lesson) to pick from the song list,
+which shows what each song teaches and your best stars. Public-domain songs,
+easiest first:
 Hot Cross Buns, Mary Had a Little Lamb, Baa Baa Black Sheep, Twinkle Twinkle
 Little Star and Ode to Joy.
 
@@ -169,6 +174,7 @@ scoring, the harp layout and slot matching). The theremin also has mouse mode: `
 | `js/theremin-main.js` | Theremin page: boot, frame loop, pinch-and-hold controls, drawing |
 | `js/lessons.js` | Song lessons (pure, tested): the songs, the theremin's learn and play steps, scoring |
 | `js/string-lessons.js` | Air Strings lessons (pure, tested): harp layout, slot matching, playing a song string by string |
+| `js/song-picker.js` | The song list shared by both instruments: songs, what they teach, stars earned, *Next up*. |
 | `js/string-lesson-main.js` | Air Strings lessons on the page: controls, coaching, drawing |
 | `js/lesson-view.js` | Draws the lesson ribbon |
 

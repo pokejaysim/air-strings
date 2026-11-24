@@ -239,3 +239,59 @@ body.lesson .toast.show { transform: translate(-50%, 0); }
 @media (max-width: 430px) { .toolbar .seg { order: 5; } }
 /* A narrow phone in a lesson has five lesson buttons: help steps aside to keep one row. */
 @media (max-width: 430px) { body.lesson #help { display: none; } }
+
+/* ---- Song picker (both instruments) ---- */
+.song-picker {
+  position: fixed; inset: 0; z-index: 14; display: grid; place-items: center;
+  background: rgba(5, 6, 12, 0.55); padding: 12px;
+}
+.song-picker[hidden] { display: none; }
+.song-picker .panel {
+  width: min(780px, 100%); max-height: 100%; overflow: auto; padding: 16px; border-radius: 18px;
+  background: rgba(14, 16, 26, 0.97); border: 1px solid rgba(125,255,176,0.35); box-shadow: 0 16px 50px rgba(0,0,0,0.5);
+}
+.song-picker header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.song-picker h2 { margin: 0; font-size: 18px; }
+.song-picker .total { color: #ffd76a; font-weight: 700; font-size: 14px; }
+.song-picker .close {
+  margin-left: auto; border: 0; border-radius: 10px; padding: 9px 16px; font-weight: 700; font-size: 14px;
+  background: rgba(255,255,255,0.08); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14);
+}
+.song-picker .songs { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; }
+.song-picker .song {
+  display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 10px; text-align: left;
+  border: 0; border-radius: 12px; padding: 10px 12px; min-height: 58px;
+  background: rgba(255,255,255,0.05); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+  transition: background 0.15s;
+}
+.song-picker .song:hover { background: rgba(255,255,255,0.1); }
+.song-picker .song.current { box-shadow: inset 0 0 0 2px rgba(125,255,176,0.6); }
+.song-picker .song.arming, .song-picker .close.arming { background: rgba(120,224,255,0.25); box-shadow: inset 0 0 0 2px rgba(120,224,255,0.8); }
+.song-picker .num {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 14px;
+  background: linear-gradient(135deg, #7dffb0, #78e0ff); color: #0b1a12;
+}
+.song-picker .info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.song-picker .title { font-weight: 700; font-size: 15px; color: #eef1f8; }
+.song-picker .teaches { font-size: 12px; color: var(--muted); }
+.song-picker .tag { font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  color: #0b1a12; background: #ffd76a; border-radius: 6px; padding: 1px 5px; margin-left: 4px; vertical-align: 2px; }
+.song-picker .tag.now { background: #7dffb0; }
+.song-picker .scores { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.song-picker .score { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.song-picker .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; }
+.song-picker .st { color: #ffd76a; font-size: 13px; letter-spacing: 1px; }
+.song-picker .st .off { color: rgba(255,255,255,0.18); }
+@media (max-width: 430px) {
+  .song-picker .songs { grid-template-columns: 1fr; }
+  .song-picker .song { gap: 8px; padding: 8px 10px; }
+  .song-picker .lbl { font-size: 9px; letter-spacing: 0.2px; }
+}
+/* Short screens (a phone on its side): one line per song. */
+@media (max-height: 500px) {
+  .song-picker { padding: 6px; }
+  .song-picker .panel { padding: 10px 12px; }
+  .song-picker header { margin-bottom: 8px; }
+  .song-picker .song { min-height: 44px; padding: 6px 10px; }
+  .song-picker .teaches { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}

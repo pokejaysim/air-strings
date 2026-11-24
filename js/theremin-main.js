@@ -10,6 +10,7 @@ import {
 import { midiToFreq, noteName } from './pitch.js';
 import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame } from './lessons.js';
 import { drawRibbon } from './lesson-view.js';
+import { createSongPicker } from './song-picker.js';
 
 // Right after an update a browser can pair a cached older page with newer
 // scripts, so a missing element gets a stand-in instead of stopping the app.
@@ -152,11 +153,12 @@ function enterLesson() {
   document.body.classList.add('lesson');
   $('hint').hidden = true;
   loadLesson();
-  introToast();
+  picker.open(); // start by choosing a song (picking one introduces it)
 }
 function exitLesson() {
   lesson.active = false;
   lesson.demo = null;
+  picker.close();
   document.body.classList.remove('lesson');
   $('lessonCard').hidden = true;
   refreshNotes();
@@ -201,9 +203,17 @@ function finishLesson() {
   if (res.stars >= 2) card(res.stars, title, msg, ['Next song', () => setLessonSong(lesson.songIdx + 1)], again);
   else card(res.stars, title, msg, ['Try again', () => setLessonMode('play')], ['Back to step 1', () => setLessonMode('learn')]);
 }
+const picker = createSongPicker({
+  songs: SONGS,
+  scores: () => SONGS.map((d) => [{ label: '', stars: bestStars(d.id) }]),
+  current: () => lesson.songIdx,
+  onPick: (i) => setLessonSong(i),
+  onOpen: () => { $('lessonCard').hidden = true; loadLesson(); }, // nothing plays on underneath
+  onClose: () => { lesson.lastT = performance.now(); },
+});
 $('learnBtn').addEventListener('click', enterLesson);
 $('exitLessonBtn').addEventListener('click', exitLesson);
-$('songBtn').addEventListener('click', () => setLessonSong(lesson.songIdx + 1));
+$('songBtn').addEventListener('click', () => picker.open());
 $('stepBtn').addEventListener('click', () => setLessonMode(lesson.mode === 'learn' ? 'play' : 'learn'));
 $('listenBtn').addEventListener('click', toggleDemo);
 $('speedBtn').addEventListener('click', () => setLessonTempo(cycle(Object.keys(TEMPOS), lesson.tempo)));
@@ -401,7 +411,9 @@ function frame(now) {
   // notes so repeated notes sound like separate notes.
   let gate = 1;
   let heard = r; // what the synth plays: you, or the song itself while listening
-  if (lesson.active && lesson.demo) {
+  if (lesson.active && picker.isOpen) {
+    lesson.lastT = now; // the song waits under the picker
+  } else if (lesson.active && lesson.demo) {
     const d = lesson.demo;
     d.pos += Math.min(0.1, Math.max(0, (now - d.lastT) / 1000)) * (TEMPOS[lesson.tempo].bpm / 60);
     d.lastT = now;
@@ -457,7 +469,7 @@ function handlePinchPresses(handPtrs, now) {
     if (!p.pinching) { app.presses.delete(p.id); continue; }
     const el = document.elementFromPoint(p.x, p.y);
     const btn = el && el.closest('button:not([disabled])');
-    const ok = btn && btn.closest('.toolbar, .hint, .banner, .lesson-card');
+    const ok = btn && btn.closest('.toolbar, .hint, .banner, .lesson-card, .song-picker');
     let pr = app.presses.get(p.id);
     if (p.pinchStarted || !pr) { pr = { btn: ok ? btn : null, t0: now, done: false }; app.presses.set(p.id, pr); }
     if (!ok || btn !== pr.btn) { pr.btn = null; continue; } // drifted off: no press
@@ -490,7 +502,7 @@ function coach() {
 /** Coaching for a lesson: the words being sung, and where to move next. */
 function lessonCoach() {
   const v = lesson.view;
-  if (!app.started || !$('hint').hidden || !v || v.done || !v.target) return null;
+  if (!app.started || !$('hint').hidden || !v || v.done || !v.target || picker.isOpen) return null;
   if (lesson.demo) return { step: '♪', text: `Listen: ${lesson.song.phrases[v.target.phrase]}`, quiet: true };
   const words = lesson.song.phrases[v.target.phrase];
   const r = app.reading || {};
@@ -696,5 +708,5 @@ function label(text, x, y, color, size = 13) {
 // Debug handle (used for automated checks; harmless otherwise).
 window.theremin = {
   app, synth, settings, tracker, state, start, setAssist, setVoice, setScale, setRange,
-  lesson, enterLesson, exitLesson, setLessonSong, setLessonMode, setLessonTempo, startDemo, stopDemo,
+  lesson, picker, enterLesson, exitLesson, setLessonSong, setLessonMode, setLessonTempo, startDemo, stopDemo,
 };

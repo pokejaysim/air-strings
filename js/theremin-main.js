@@ -114,7 +114,13 @@ $('rangeBtn').addEventListener('click', cycleRange);
 // ---------------- Lessons ----------------
 const bestStars = (id) => Math.min(3, Math.max(0, parseInt(store.get('theremin.stars.' + id, '0'), 10) || 0));
 const starText = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
+/** Stars earned across every song, shown on the Learn button in free play. */
+function refreshLearnBadge() {
+  const total = SONGS.reduce((t, d) => t + bestStars(d.id), 0);
+  $('learnStars').textContent = total ? `★ ${total}` : '';
+}
 function refreshLessonLabels() {
+  refreshLearnBadge();
   const def = SONGS[lesson.songIdx], best = bestStars(def.id);
   $('songKey').innerHTML = `Song ${lesson.songIdx + 1}/${SONGS.length}` + (best ? ` <span class="won">${'★'.repeat(best)}</span>` : '');
   $('songVal').textContent = def.short || def.title;
@@ -219,6 +225,7 @@ const picker = createSongPicker({
   onOpen: () => { $('lessonCard').hidden = true; loadLesson(); }, // nothing plays on underneath
   onClose: () => { lesson.lastT = performance.now(); },
 });
+refreshLearnBadge();
 $('learnBtn').addEventListener('click', enterLesson);
 $('exitLessonBtn').addEventListener('click', exitLesson);
 $('songBtn').addEventListener('click', () => picker.open());

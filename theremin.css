@@ -32,4 +32,6 @@ body.theremin .toolbar, body.theremin .status, body.theremin .coach, body.therem
   body.theremin .toolbar .icon-btn.round { width: 28px; height: 28px; padding: 0; }
   /* No room for it on a phone; the help panel links to Air Strings instead. */
   body.theremin .toolbar .strings-link { display: none; }
+  /* The theremin's toolbar is full on a phone: its song list shows the stars instead. */
+  body.theremin .learn-stars { display: none; }
 }

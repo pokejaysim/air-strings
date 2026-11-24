@@ -96,7 +96,13 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     if (demo) interaction.pluck(s, 0.35, 0.55, Math.min(14, sl.len * 0.08), app.W, performance.now(), 'demo');
     return s;
   }
+  /** Stars earned across every song, shown on the Learn button in free play. */
+  function refreshLearnBadge() {
+    const total = SONGS.reduce((t, d) => t + paceStars(d.id) + timeStars(d.id), 0);
+    $('learnStars').textContent = total ? `★ ${total}` : '';
+  }
   function refreshLabels() {
+    refreshLearnBadge();
     const def = SONGS[L.songIdx], best = bestStars(def.id);
     $('songKey').innerHTML = `Song ${L.songIdx + 1}/${SONGS.length}` + (best ? ` <span class="won">${'★'.repeat(best)}</span>` : '');
     $('songVal').textContent = def.short || def.title;
@@ -672,6 +678,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   });
 
   // ---------- controls ----------
+  refreshLearnBadge();
   $('learnBtn').addEventListener('click', enter);
   $('exitLessonBtn').addEventListener('click', exit);
   $('songBtn').addEventListener('click', () => picker.open());

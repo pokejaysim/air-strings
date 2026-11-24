@@ -1,7 +1,8 @@
 import {
   E2, E5, L_MIN, L_MAX, lengthToFrequency, rawFrequency, snapFrequency,
-  noteName, freqToMidi, midiToFreq, lengthFraction, pitchForLength, centsOff, SCALES, SCALE_ROOT,
+  noteName, freqToMidi, midiToFreq, lengthFraction, pitchForLength, centsOff, SCALES, SCALE_ROOT, noteHue,
 } from './pitch.js';
+import { FX, MAX_PARTICLES } from './fx.js';
 import { StringBank } from './strings.js';
 import { Interaction, TUNING } from './interaction.js';
 import { HandGestures, videoToScreen, PINCH_ON, PINCH_OFF } from './gestures.js';
@@ -726,6 +727,26 @@ test('Songs: ten or more, unique, each says what it teaches, and every note fits
     assert(s.notes.every((n) => n.beats > 0 && [60, 62, 64, 65, 67, 69].includes(n.midi)), `${def.id}: a note off the harp`);
   }
   assert(SONGS[0].id === 'buns', 'the easiest song comes first');
+});
+test('Lesson strings: every note name has its own colour, the same in every octave', () => {
+  const hues = [60, 62, 64, 65, 67, 69].map(noteHue);
+  assert(new Set(hues).size === 6, `hues ${hues}`);
+  for (let i = 1; i < hues.length; i++) assert(Math.abs(hues[i] - hues[i - 1]) >= 12, 'neighbouring notes look different');
+  assert(noteHue(48) === noteHue(60) && noteHue(72) === noteHue(60), 'C is C in any octave');
+  const bank = new StringBank();
+  assert(bank.addTuned(0, 0, 0, 300, 1180, 720, 67).hue === noteHue(67), 'a tuned string takes its note colour');
+  assert(bank.add(0, 0, 0, 300, 1180, 720).hue !== undefined, 'free strings still get a colour');
+});
+test('Effects: sparks and confetti fade out, and never pile up past the cap', () => {
+  const fx = new FX();
+  fx.burst(100, 100, 0, 1);
+  assert(fx.count > 10, `burst made ${fx.count}`);
+  for (let i = 0; i < 20; i++) fx.update(0.1);
+  assert(fx.count === 0, `${fx.count} left after 2 s`);
+  for (let i = 0; i < 10; i++) fx.confetti(800, 600);
+  assert(fx.count <= MAX_PARTICLES, `${fx.count} particles`);
+  for (let i = 0; i < 50; i++) fx.update(0.1);
+  assert(fx.count === 0, 'confetti cleared after 5 s');
 });
 test('Song picker suggests the first song without a star, else stays put', () => {
   const sc = (...st) => st.map((n) => [{ label: 'a', stars: n }, { label: 'b', stars: 0 }]);

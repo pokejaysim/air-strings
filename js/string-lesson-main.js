@@ -3,7 +3,8 @@
 
 import { SONGS, buildSong } from './lessons.js';
 import { harpSlots, matchSlot, drawFeedback, whiteNoteForLength, StringSongRun, StringTimedRun, STRING_TEMPOS, timedGeometry } from './string-lessons.js';
-import { lengthFraction, midiToFreq, noteName } from './pitch.js';
+import { lengthFraction, midiToFreq, noteName, noteHue } from './pitch.js';
+import { FX } from './fx.js';
 import { roundRect } from './strings.js';
 import { createSongPicker } from './song-picker.js';
 
@@ -26,6 +27,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     tempo: STRING_TEMPOS[store.get('strings.tempo', 'slow')] ? store.get('strings.tempo', 'slow') : 'slow',
     lastBeat: null,         // for the count-in ticks
     demo: null,             // 'Listen': a run the app plays by itself
+    fxT: 0,
     song: null,
     run: null,
     harp: new Map(),        // midi -> AirString; kept between songs, so each song adds to it
@@ -35,6 +37,8 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     cardShown: false,
     lastHintT: 0,
   };
+
+  const fx = new FX();
 
   // ---------- helpers ----------
   const tol = (source) => {
@@ -79,6 +83,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     const s = bank.addTuned(sl.ax, sl.ay, sl.bx, sl.by, app.W, app.H, midi);
     L.harp.set(midi, s);
     s.glow = 1;
+    if (demo) { fx.burst(sl.ax, sl.ay, s.hue, 0.5); fx.burst(sl.bx, sl.by, s.hue, 0.5); }
     // Let them hear the note they just made.
     if (demo) interaction.pluck(s, 0.35, 0.55, Math.min(14, sl.len * 0.08), app.W, performance.now(), 'demo');
     return s;
@@ -211,13 +216,26 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       const i = d.index, n = L.song.notes[i];
       d.pluck(n.midi, d.timeOf(i));
       const s = L.harp.get(n.midi);
-      if (s) interaction.pluck(s, 0.5, 0.6, Math.min(14, s.length * 0.08), app.W, now, 'demo');
+      if (s) { interaction.pluck(s, 0.5, 0.6, Math.min(14, s.length * 0.08), app.W, now, 'demo'); sparkle(n.midi, 0.35); }
       else interaction.synth.pluck({ freq: midiToFreq(n.midi), amp: 0.6, position: 0.4, pan: 0, stringId: 'demo' + n.midi });
     }
     // Light the string about to play.
     const t = d.target;
     if (t) { const s = L.harp.get(t.midi); if (s) s.hover = 1; }
     if (d.done && now - d.timeOf(L.song.notes.length - 1) > L.song.notes[L.song.notes.length - 1].beats * d.beatMs + 400) stopDemo(false);
+  }
+
+  /** Where a string crosses the now-line when playing in time (else its middle). */
+  function hitPoint(midi) {
+    const sl = slotFor(midi);
+    if (!sl) return null;
+    if (L.step !== 'time') return [(sl.ax + sl.bx) / 2, (sl.ay + sl.by) / 2];
+    const g = timedGeometry(L.slots, app.W, app.H, { farTop: $('toolbar').getBoundingClientRect().bottom + 10 });
+    return g.wide ? [sl.ax, g.now] : [g.now, sl.ay];
+  }
+  function sparkle(midi, power) {
+    const p = hitPoint(midi);
+    if (p) fx.burst(p[0], p[1], noteHue(midi), power);
   }
 
   function startTimed() {
@@ -276,6 +294,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     const timed = L.step === 'time';
     const key = (timed ? 'strings.time.' : 'strings.stars.') + def.id;
     if (res.stars > readStars(key)) store.set(key, String(res.stars));
+    if (res.stars === 3) fx.confetti(app.W, app.H);
     refreshLabels();
     $('lessonStars').innerHTML = '★'.repeat(res.stars) + `<span class="off">${'★'.repeat(3 - res.stars)}</span>`;
     const slips = res.wrong === 0 ? 'no slips' : res.wrong === 1 ? '1 slip' : res.wrong + ' slips';
@@ -309,12 +328,14 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     const midi = ev.string.fixedMidi;
     const now = performance.now();
     if (L.step === 'time') {
-      L.run.pluck(midi, now);
+      const g = L.run.pluck(midi, now);
+      if (g === 'perfect' || g === 'good') sparkle(midi, g === 'perfect' ? 1 : 0.55);
       if (L.run.done) finish();
       return;
     }
     const want = L.run.target;
     const res = L.run.pluck(midi, now);
+    if (res === 'right') sparkle(midi, 0.7);
     if (res === 'wrong' && now - L.lastHintT > 2500) {
       L.lastHintT = now;
       ui.toast(`That was ${letter(midi)}. The glowing string is ${want.name}.`, 2000);
@@ -414,7 +435,8 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       slots.forEach((s, i) => {
         const cur = i === 0;
         ctx.setLineDash([8, 9]);
-        ctx.strokeStyle = cur ? `rgba(125,255,176,${0.6 + 0.3 * pulse})` : 'rgba(255,255,255,0.2)';
+        const hue = noteHue(s.midi);
+        ctx.strokeStyle = cur ? `hsla(${hue}, 95%, 66%, ${0.65 + 0.3 * pulse})` : `hsla(${hue}, 60%, 70%, 0.22)`;
         ctx.lineWidth = cur ? 3 : 2;
         ctx.beginPath(); ctx.moveTo(s.ax, s.ay); ctx.lineTo(s.bx, s.by); ctx.stroke();
         ctx.setLineDash([]);
@@ -423,7 +445,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
         const lx = (s.ax + s.bx) / 2 + (wide ? 24 : 0), ly = (s.ay + s.by) / 2 - (wide ? 0 : 22);
         ctx.fillStyle = 'rgba(8,10,18,0.7)';
         roundRect(ctx, lx - 13, ly - 11, 26, 22, 11); ctx.fill();
-        ctx.fillStyle = cur ? '#b9ffd6' : 'rgba(238,241,248,0.55)';
+        ctx.fillStyle = cur ? `hsl(${hue}, 100%, 80%)` : 'rgba(238,241,248,0.55)';
         ctx.fillText(s.name, lx, ly + 0.5);
         if (!cur) return;
         // Start dot and finish ring.
@@ -443,7 +465,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     } else if (L.step === 'play' && L.run && !L.run.done && !L.demo) {
       const s = L.harp.get(L.run.target.midi);
       if (s) {
-        ctx.strokeStyle = `rgba(125,255,176,${0.14 + 0.14 * pulse})`;
+        ctx.strokeStyle = `hsla(${s.hue}, 95%, 62%, ${0.14 + 0.16 * pulse})`;
         ctx.lineWidth = 40;
         ctx.beginPath(); ctx.moveTo(s.ax, s.ay); ctx.lineTo(s.bx, s.by); ctx.stroke();
       }
@@ -454,6 +476,12 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   /** Over everything: the next few notes of the song, under the toolbar. */
   function drawOver(ctx, now) {
     now = now ?? performance.now();
+    drawLesson(ctx, now);
+    fx.update((now - (L.fxT || now)) / 1000);
+    L.fxT = now;
+    fx.draw(ctx);
+  }
+  function drawLesson(ctx, now) {
     if (L.active && L.demo && L.step === 'time') { drawTimed(ctx, now, L.demo); return; }
     if (L.active && L.step === 'time' && L.run && !L.demo) { drawTimed(ctx, now, L.run); return; }
     const run = L.demo || (L.step === 'play' ? L.run : null);
@@ -469,13 +497,15 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       const cur = i === 0;
       // A small gap marks the start of a new line of the song.
       if (i && n.phrase !== notes[i - 1].phrase) x += 10;
-      const r = cur ? 16 : 12;
+      const r = cur ? 16 : 12, hue = noteHue(n.midi);
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = cur ? '#7dffb0' : 'rgba(14,16,26,0.85)';
+      ctx.fillStyle = cur ? `hsl(${hue}, 95%, 66%)` : 'rgba(14,16,26,0.85)';
       ctx.fill();
-      if (!cur) { ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.stroke(); }
+      ctx.strokeStyle = cur ? 'rgba(255,255,255,0.9)' : `hsla(${hue}, 90%, 66%, ${0.75 - i * 0.08})`;
+      ctx.lineWidth = cur ? 2 : 1.5;
+      ctx.stroke();
       ctx.font = `${cur ? 800 : 600} ${cur ? 15 : 12}px ui-rounded, system-ui, sans-serif`;
-      ctx.fillStyle = cur ? '#0b1a12' : `rgba(238,241,248,${0.85 - i * 0.1})`;
+      ctx.fillStyle = cur ? '#0b0d14' : `rgba(238,241,248,${0.85 - i * 0.1})`;
       ctx.fillText(n.name, x, y + 0.5);
       x += gap;
     });
@@ -563,11 +593,6 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       ctx.fillStyle = ev.grade === 'perfect' ? '#7dffb0' : ev.grade === 'good' ? '#cfe9ff' : '#ff8a96';
       const lift = 22 + 26 * age;
       ctx.fillText(label, g.wide ? x : x, g.wide ? y + lift : y - lift);
-      if (ev.grade !== 'miss') {
-        ctx.beginPath(); ctx.arc(x, y, 15 + 30 * age, 0, Math.PI * 2);
-        ctx.strokeStyle = ev.grade === 'perfect' ? '#7dffb0' : '#cfe9ff';
-        ctx.lineWidth = 3 * (1 - age); ctx.stroke();
-      }
       ctx.globalAlpha = 1;
     }
     // Count-in.

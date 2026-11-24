@@ -1,6 +1,6 @@
 // Virtual strings: geometry, pull/vibration physics, and rendering.
 
-import { pitchForLength, lengthFraction, midiToFreq, noteName, E2 } from './pitch.js';
+import { pitchForLength, lengthFraction, midiToFreq, noteName, noteHue, E2 } from './pitch.js';
 
 const MODES = 6;
 let nextId = 1;
@@ -27,7 +27,8 @@ export class AirString {
       : pitchForLength(this.lengthFrac, scale);
     this.freq = p.freq; this.note = p.note; this.cents = p.cents;
     const x = Math.min(1, Math.max(0, Math.log2(this.freq / E2) / 3)); // 0 = E2, 1 = E5
-    this.hue = 265 - 235 * x; // low = violet, high = amber
+    // Free strings: low = violet, high = amber. Lesson strings: one colour per note name.
+    this.hue = this.fixedMidi != null ? noteHue(this.fixedMidi) : 265 - 235 * x;
     this.visFreq = 3.5 + 5.5 * x; // a visible wobble rate, not the audio rate
     this.decay = 1.3 - 0.6 * x;
   }

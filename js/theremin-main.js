@@ -9,7 +9,8 @@ import {
 } from './theremin-map.js';
 import { midiToFreq, noteName } from './pitch.js';
 import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame } from './lessons.js';
-import { drawRibbon } from './lesson-view.js';
+import { drawRibbon, ribbonGeometry } from './lesson-view.js';
+import { FX } from './fx.js';
 import { createSongPicker } from './song-picker.js';
 
 // Right after an update a browser can pair a cached older page with newer
@@ -59,6 +60,8 @@ const lesson = {
   lastT: 0, cardShown: false,
   demo: null, // 'Listen': { pos } while the app plays the song itself
 };
+const fx = new FX();
+let fxT = 0;
 if (!TEMPOS[lesson.tempo]) lesson.tempo = 'slow';
 
 const app = {
@@ -196,6 +199,7 @@ function finishLesson() {
     return;
   }
   if (res.stars > bestStars(def.id)) store.set('theremin.stars.' + def.id, String(res.stars));
+  if (res.stars === 3) fx.confetti(app.W, app.H);
   refreshLessonLabels();
   const title = res.hits === res.total ? 'Perfect!' : ['Keep at it', 'Good start', 'Nicely played', 'Excellent!'][res.stars];
   const msg = `You hit ${res.hits} of ${res.total} notes at ${TEMPOS[lesson.tempo].label.toLowerCase()} speed.`;
@@ -427,8 +431,11 @@ function frame(now) {
   } else if (lesson.active && lesson.run) {
     const dt = Math.min(0.1, Math.max(0, (now - lesson.lastT) / 1000));
     lesson.lastT = now;
+    const before = lesson.view ? lesson.view.index : 0;
     lesson.view = lesson.run.step(r, dt);
     gate = lesson.view.gate;
+    // Sparks for every note you just got, where it crossed the now-line.
+    for (let i = before; i < lesson.view.index; i++) if (lesson.view.hit[i]) sparkleNote(lesson.song.notes[i].midi);
     if (lesson.view.done && !lesson.cardShown) finishLesson();
   }
   const handGlide = app.cameraOn && !app.mouseMode ? (app.detectInterval / 1000) * 0.6 : 0;
@@ -518,6 +525,15 @@ function lessonCoach() {
   return { step: v.index + 1, text: tip ? `${words} · ${tip}` : words, quiet: true };
 }
 
+function sparkleNote(midi) {
+  const L = app.layout, range = lesson.range;
+  if (!L || !range) return;
+  const g = ribbonGeometry(L);
+  const c = axisToScreen(midiToAxis(midi, range.low, range.high), L);
+  const [x, y] = g.land ? [c, g.nowC] : [g.nowC, c];
+  fx.burst(x, y, hueFor(midi, range), lesson.mode === 'play' ? 0.8 : 0.5);
+}
+
 // ---------------- Render ----------------
 const hueFor = (midi, range) => 200 - 170 * Math.min(1, Math.max(0, (midi - range.low) / (range.high - range.low)));
 
@@ -535,6 +551,10 @@ function render() {
   if (lesson.active && lesson.view) drawRibbon(ctx, L, lesson.range, lesson.song, lesson.view, lesson.demo ? lesson.demo.reading : r, hueFor);
   drawTrail();
   drawHands(L, r);
+  const now = performance.now();
+  fx.update((now - (fxT || now)) / 1000);
+  fxT = now;
+  fx.draw(ctx);
 }
 
 // Glow without shadowBlur (slow on phones): a wide faint stroke under a thin bright one.

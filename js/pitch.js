@@ -84,3 +84,11 @@ export function pitchForLength(lengthFrac, scaleName = 'off') {
   const freq = snapFrequency(lengthToFrequency(lengthFrac), scaleName);
   return { freq, note: noteName(freq), cents: centsOff(freq) };
 }
+
+/**
+ * A colour for each note name, used for lesson strings so every C looks
+ * like every other C: C red, D orange, E yellow, F green, G blue, A violet,
+ * B pink (sharps sit halfway between their neighbours).
+ */
+const NOTE_HUES = [0, 14, 30, 40, 52, 125, 160, 195, 220, 268, 290, 318];
+export const noteHue = (midi) => NOTE_HUES[((Math.round(midi) % 12) + 12) % 12];

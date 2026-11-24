@@ -86,6 +86,17 @@ export function drawRibbon(ctx, L, range, song, view, reading, hueFor) {
     } else if (current) fill = view.onPitch ? `hsl(${hue}, 100%, 74%)` : `hsla(${hue}, 90%, 64%, 0.78)`;
     else fill = `hsla(${hue}, 85%, 62%, 0.5)`;
     const [x, y, w, h] = land ? [c - thick / 2, lo, thick, len] : [lo, c - thick / 2, len, thick];
+    if (current && view.onPitch) {
+      // A soft glow while you're on it (additive, no blur filter: cheap on phones).
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const [grow, a] of [[14, 0.08], [7, 0.14]]) {
+        roundRect(ctx, x - grow, y - grow, w + 2 * grow, h + 2 * grow, Math.min(8, w / 2, h / 2) + grow);
+        ctx.fillStyle = `hsla(${hue}, 100%, 65%, ${a})`;
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     roundRect(ctx, x, y, w, h, Math.min(8, w / 2, h / 2));
     ctx.fillStyle = fill;
     ctx.fill();

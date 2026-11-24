@@ -66,6 +66,10 @@ easiest first; every one fits on six strings, C to A).
    Slow 50, Medium 66 and Fast 84 bpm, a little slower than the theremin's
    because a pluck takes longer than a slide.
 
+In lessons every note name has its own colour (C red, D orange, E yellow,
+F green, G blue, A violet), on the strings, the next-notes strip and the notes
+that travel in step 3. Right notes throw sparks; three stars bring confetti.
+
 **Listen** (or <kbd>P</kbd>) plays the song for you first, at the chosen speed:
 each string lights and sounds in turn (in step 1, before the strings exist,
 you still hear the notes). When it ends, the song is reset for your turn.
@@ -174,6 +178,7 @@ scoring, the harp layout and slot matching). The theremin also has mouse mode: `
 | `js/theremin-main.js` | Theremin page: boot, frame loop, pinch-and-hold controls, drawing |
 | `js/lessons.js` | Song lessons (pure, tested): the songs, the theremin's learn and play steps, scoring |
 | `js/string-lessons.js` | Air Strings lessons (pure, tested): harp layout, slot matching, playing a song string by string |
+| `js/fx.js` | Sparks when you hit a note, and confetti for three stars (one particle list, additive blending, capped). |
 | `js/song-picker.js` | The song list shared by both instruments: songs, what they teach, stars earned, *Next up*. |
 | `js/string-lesson-main.js` | Air Strings lessons on the page: controls, coaching, drawing |
 | `js/lesson-view.js` | Draws the lesson ribbon |

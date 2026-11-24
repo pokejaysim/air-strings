@@ -8,6 +8,7 @@ import { Interaction } from './interaction.js';
 import { UI } from './ui.js';
 import { createStringLessons } from './string-lesson-main.js';
 import { SignWatcher, drawSignRings, signsEnabled, setSignsEnabled } from './hand-signs.js';
+import { FaceSession, drawFaceBadge } from './face.js';
 
 const params = new URLSearchParams(location.search);
 const video = document.getElementById('video');
@@ -20,6 +21,7 @@ const tracker = new HandTracker();
 const hands = new HandGestures();
 const mouse = new PointerGestures(canvas);
 const signs = new SignWatcher();
+const face = new FaceSession();
 
 const app = {
   mouseMode: params.get('mouse') === '1',
@@ -167,13 +169,15 @@ function frame(now) {
       detectCount = 0; detectWindow = now;
       const n = app.handCount;
       ui.setStatus(n ? `Tracking ${n} hand${n > 1 ? 's' : ''} · ${app.detectFps} fps · ${app.delegate}` : 'Show your hand to the camera', 'live');
+      if (face.guard(app.detectFps)) { refreshFaceLabels(); ui.toast('Face control turned off: hand tracking got too slow on this device.', 3600); }
     }
+    readFace(now);
   }
   app.pointers = pointers;
   watchSigns(pointers, now);
 
   interaction.update(pointers, W, H, now);
-  bank.update(dt);
+  bank.update(dt, synth.mod.sustain);
   lessons.frame();
   ui.setCoach(lessons.active ? lessons.coach() : coach(now));
   ui.setSoundPaused(app.started && synth.needsUnlock);
@@ -242,6 +246,51 @@ function setSigns(on) {
 document.getElementById('signsBtn')?.addEventListener('click', () => setSigns(!app.signsOn));
 setSigns(app.signsOn);
 
+// ---------------- Face control ----------------
+// Mouth open = notes ring longer; eyebrows up = an octave higher (free play only).
+const FACE_MAX_SUSTAIN = 2.5;
+async function setFace(on) {
+  if (on && (!app.cameraOn || app.mouseMode)) { ui.toast('Face control needs the camera.', 2200); return; }
+  if (on && !face.on) document.getElementById('faceVal2').textContent = '…';
+  const r = await face.set(on, { detectFps: app.detectFps, onStatus: (s) => ui.setStatus(s, 'warn') });
+  if (r === 'failed') ui.toast('The face tracker could not load. Check your connection and try again.', 3000);
+  else if (r === 'on') ui.toast('Relax your face for a moment…', 1600);
+  refreshFaceLabels();
+}
+function refreshFaceLabels() {
+  const v = face.on ? 'On' : 'Off', b = document.getElementById('faceBtn');
+  document.getElementById('faceVal2').textContent = v;
+  if (b) {
+    b.classList.toggle('on', face.on);
+    b.setAttribute('aria-pressed', String(face.on));
+    b.title = `Face control is ${v.toLowerCase()}: mouth for longer notes, eyebrows for an octave (F)`;
+  }
+  if (!face.on) synth.mod = { sustain: 1, octave: false };
+}
+function readFace(now) {
+  if (!face.on) return;
+  const { active, justReady } = face.read(video, now);
+  if (justReady) ui.toast(lessons.active
+    ? 'Face on: open your mouth to let notes ring longer.'
+    : 'Face on: open your mouth to let notes ring longer, raise your eyebrows for an octave up.', 3200);
+  const c = face.ctl;
+  synth.mod = active
+    ? { sustain: 1 + (FACE_MAX_SUSTAIN - 1) * c.mouth, octave: c.brows && !lessons.active }
+    : { sustain: 1, octave: false };
+}
+document.getElementById('faceBtn')?.addEventListener('click', () => setFace(!face.on));
+document.getElementById('faceBtn2')?.addEventListener('click', () => setFace(!face.on));
+window.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT' || !app.started) return;
+  if (e.key.toLowerCase() === 'f') { setFace(!face.on); e.preventDefault(); }
+});
+/** The face badge sits bottom-right, just above the coach line. */
+function faceBadgePos() {
+  const c = document.getElementById('coach');
+  const top = c && !c.hidden ? c.getBoundingClientRect().top : app.H - 16;
+  return [app.W - 52, Math.min(app.H - 74, top - 64)];
+}
+
 // ---------------- Render ----------------
 function render(pointers, now) {
   const { W, H, dpr } = app;
@@ -254,6 +303,7 @@ function render(pointers, now) {
   lessons.drawOver(ctx, now);
   for (const p of pointers) drawPointer(p);
   drawSignRings(ctx, app.signRings);
+  if (face.on) { const [x, y] = faceBadgePos(); drawFaceBadge(ctx, x, y, face.ctl, now); }
 }
 
 function drawPreview(p) {
@@ -332,4 +382,4 @@ function drawPointer(p) {
 }
 
 // Debug handle (used for automated checks; harmless otherwise).
-window.airStrings = { app, bank, synth, interaction, tracker, start, lessons, signs, setSigns };
+window.airStrings = { app, bank, synth, interaction, tracker, start, lessons, signs, setSigns, face, setFace };

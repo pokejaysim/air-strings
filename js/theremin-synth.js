@@ -62,8 +62,19 @@ export class ThereminSynth extends AudioCore {
     this.level.connect(this.analyser);
     this.osc1.frequency.value = this.osc2.frequency.value = this.lastFreq;
     this.applyVoice(this.voiceName, true);
+    // Vibrato from head tilt (Face control): a slow sine wobbling both
+    // oscillators' detune, by up to VIBRATO_MAX_CENTS.
+    this.lfo = ctx.createOscillator();
+    this.lfo.frequency.value = VIBRATO_HZ;
+    this.lfoDepth = ctx.createGain();
+    this.lfoDepth.gain.value = 0;
+    this.lfo.connect(this.lfoDepth);
+    this.lfoDepth.connect(this.osc1.detune);
+    this.lfoDepth.connect(this.osc2.detune);
+    this.vibrato = 0;
     this.osc1.start();
     this.osc2.start();
+    this.lfo.start();
     return 'oscillator';
   }
 
@@ -153,6 +164,11 @@ export class ThereminSynth extends AudioCore {
     const levelChanged = Math.abs(target - this.target) > 1e-4;
     const faceToggled = !face !== !this.face;
     const faceChanged = faceToggled || (face && (Math.abs(face.mouth - this.face.mouth) > 0.01 || Math.abs(face.oo - this.face.oo) > 0.01));
+    const vib = face ? vibratoCents(face.tilt || 0) : 0;
+    if (this.lfoDepth && (Math.abs(vib - this.vibrato) > 0.5 || (vib === 0 && this.vibrato !== 0))) {
+      this.lfoDepth.gain.setTargetAtTime(vib, t, 0.08);
+      this.vibrato = vib;
+    }
     if (!freqChanged && !toneChanged && !levelChanged && !faceChanged && sounding === this.sounding) return true;
     if (faceChanged) {
       this.face = face ? { mouth: face.mouth, oo: face.oo } : null;
@@ -193,6 +209,14 @@ export class ThereminSynth extends AudioCore {
     this.analyser.getFloatTimeDomainData(this.wave);
     return this.wave;
   }
+}
+
+export const VIBRATO_HZ = 5.5;
+export const VIBRATO_MAX_CENTS = 45;
+/** Vibrato depth (cents) for a head tilt of 0..1. Eased so a small tilt is subtle. */
+export function vibratoCents(tilt) {
+  const k = Math.min(1, Math.max(0, tilt));
+  return VIBRATO_MAX_CENTS * k * k;
 }
 
 /** The face "wah" filter for a note: { cutoff (Hz), q }. Exported for tests. */

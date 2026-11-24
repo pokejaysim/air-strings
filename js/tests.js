@@ -12,7 +12,9 @@ import { ribbonGeometry } from './lesson-view.js';
 import { suggestedSong } from './song-picker.js';
 import { parseHands } from './tracking.js';
 import { parseFace, FaceControls, CAL_MS, MOUTH_RANGE, BROW_ON, BROW_OFF, LOST_MS, TILT_START, TILT_FULL } from './face.js';
-import { faceFilter } from './theremin-synth.js';
+import { faceFilter, vibratoCents, VIBRATO_MAX_CENTS } from './theremin-synth.js';
+import { StringSynth } from './audio.js';
+import { FaceSession } from './face.js';
 import { SignWatcher, SIGNS, GAP_MS, SHOW_AFTER_MS, COOLDOWN_MS, MIN_SCORE } from './hand-signs.js';
 import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun, StringTimedRun, timedGeometry, STRING_TEMPOS, PERFECT_SEC, WINDOW_SEC } from './string-lessons.js';
 
@@ -1056,6 +1058,36 @@ test('Face: head tilt beyond a few degrees sets the vibrato depth', () => {
   assert(fc.tilt < 0.02, 'small tilts do nothing');
   for (let i = 0; i < 30; i++) fc.update(faceSample(0.05, 0.05, 0.1, 2 - TILT_FULL - 5), (t += 33));
   assert(fc.tilt > 0.95, `either side counts: ${fc.tilt}`);
+});
+test('Face vibrato: none when level, gentle for a small tilt, full when tilted right over', () => {
+  assert(vibratoCents(0) === 0, 'level head');
+  assert(vibratoCents(0.3) < VIBRATO_MAX_CENTS * 0.15, `small tilt ${vibratoCents(0.3)}`);
+  assert(near(vibratoCents(1), VIBRATO_MAX_CENTS) && near(vibratoCents(2), VIBRATO_MAX_CENTS), 'full and clamped');
+});
+test('Face on Air Strings: plucks ring longer and can jump an octave', () => {
+  const synth = new StringSynth();
+  const sent = [];
+  synth.ctx = { state: 'running' }; synth.mode = 'worklet'; synth.node = { port: { postMessage: (m) => sent.push(m) } };
+  synth.pluck({ freq: 220, amp: 0.7 });
+  synth.mod = { sustain: 2.5, octave: true };
+  synth.pluck({ freq: 220, amp: 0.7 });
+  assert(sent[0].sustain === 1 && near(sent[0].freq, 220), JSON.stringify(sent[0]));
+  assert(sent[1].sustain === 2.5 && near(sent[1].freq, 440), JSON.stringify(sent[1]));
+  const bank = new StringBank();
+  const a = bank.add(100, 100, 100, 500, 1000, 800), b = bank.add(300, 100, 300, 500, 1000, 800);
+  a.excite(0.5, 20); b.excite(0.5, 20);
+  a.update(1); b.update(1, 2.5);
+  assert(b.vibAge < a.vibAge && near(b.vibAge * 2.5, a.vibAge), 'the string shows it ringing longer too');
+});
+test('Face session: switches itself off only after 3 slow seconds', () => {
+  const fs = new FaceSession();
+  fs.on = true; fs.baseFps = 30;
+  assert(!fs.guard(12) && !fs.guard(12), 'two slow seconds: still on');
+  assert(!fs.guard(28), 'recovered: counter resets');
+  assert(!fs.guard(12) && !fs.guard(12) && fs.guard(12) && !fs.on, 'three in a row: off');
+  const slowPhone = new FaceSession();
+  slowPhone.on = true; slowPhone.baseFps = 13;
+  assert(!slowPhone.guard(12) && !slowPhone.guard(12) && !slowPhone.guard(12) && slowPhone.on, 'a phone that was already slow is not blamed on Face');
 });
 test('Face wah: closed sits near the note, open is far brighter, "oo" is darker', () => {
   const c = faceFilter(262, 0, 0), o = faceFilter(262, 1, 0), oo = faceFilter(262, 1, 1);

@@ -143,6 +143,64 @@ export class FaceTracker {
   }
 }
 
+export const FACE_MIN_FPS = 15; // below this (and well below where it was), Face turns itself off
+
+/**
+ * Face control on/off for one instrument: loads the model the first time,
+ * learns the resting face, reads it each frame, and switches itself off if
+ * hand tracking slows right down. The instrument supplies the wording.
+ */
+export class FaceSession {
+  constructor() {
+    this.tracker = new FaceTracker();
+    this.ctl = new FaceControls();
+    this.on = false;
+    this.loading = false;
+    this.baseFps = 0;
+    this.slowSecs = 0;
+    this.wasCal = true;
+  }
+
+  /** Returns 'on', 'off', 'busy' or 'failed'. */
+  async set(on, { detectFps = 0, onStatus } = {}) {
+    if (on === this.on) return on ? 'on' : 'off';
+    if (this.loading) return 'busy';
+    if (!on) { this.on = false; return 'off'; }
+    this.loading = true;
+    try {
+      await this.tracker.init(onStatus);
+    } catch (err) {
+      console.error(err);
+      return 'failed';
+    } finally {
+      this.loading = false;
+    }
+    this.ctl.reset();
+    this.on = true; this.wasCal = true; this.slowSecs = 0; this.baseFps = detectFps;
+    return 'on';
+  }
+
+  /** Read the face this frame. justReady is true on the frame calibration finishes. */
+  read(video, now) {
+    if (!this.on) return { active: false, justReady: false };
+    let sample = null;
+    try { sample = this.tracker.detect(video, now); } catch (err) { console.warn('face detect failed', err); }
+    this.ctl.update(sample, now);
+    const justReady = this.wasCal && !this.ctl.calibrating;
+    this.wasCal = this.ctl.calibrating;
+    return { active: !this.ctl.calibrating && this.ctl.present, justReady };
+  }
+
+  /** Call once a second with the hand-tracking rate; true if Face just turned itself off. */
+  guard(detectFps) {
+    if (!this.on) return false;
+    const slow = detectFps < FACE_MIN_FPS && detectFps < this.baseFps * 0.8;
+    this.slowSecs = slow ? this.slowSecs + 1 : 0;
+    if (this.slowSecs >= 3) { this.on = false; return true; }
+    return false;
+  }
+}
+
 /**
  * A little face that mirrors yours: mouth opens and rounds, eyebrows lift
  * (with an "8va" light), head tilts. While calibrating, a ring fills.

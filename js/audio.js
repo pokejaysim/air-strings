@@ -9,6 +9,7 @@ export class StringSynth extends AudioCore {
     this.node = null;
     this.log = []; // recent plucks, handy for debugging
     this.dropped = 0; // plucks lost while audio was paused
+    this.mod = { sustain: 1, octave: false }; // set by Face control
   }
 
   async setup(ctx, input) {
@@ -40,8 +41,9 @@ export class StringSynth extends AudioCore {
       return false;
     }
     const a = Math.max(0.05, Math.min(1, amp));
+    if (this.mod.octave) freq *= 2;
     const msg = {
-      type: 'pluck', freq, stringId, pan,
+      type: 'pluck', freq, stringId, pan, sustain: this.mod.sustain,
       position: Math.min(position, 1 - position),
       amp: 0.12 + 0.55 * a,
       brightness: 0.35 + 0.6 * a,

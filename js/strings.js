@@ -62,8 +62,8 @@ export class AirString {
     this.glow = 1;
   }
 
-  update(dt) {
-    this.vibAge += dt;
+  update(dt, ring = 1) {
+    this.vibAge += dt / ring; // ring > 1: rings longer (Face control)
     this.glow = Math.max(0, this.glow - dt * 1.6);
     this.hover = Math.max(0, this.hover - dt * 6);
   }
@@ -212,6 +212,6 @@ export class StringBank {
     return best;
   }
 
-  update(dt) { for (const s of this.strings) s.update(dt); }
+  update(dt, ring = 1) { for (const s of this.strings) s.update(dt, ring); }
   draw(ctx) { for (const s of this.strings) s.draw(ctx); }
 }

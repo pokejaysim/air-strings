@@ -34,8 +34,5 @@ body.theremin .toolbar, body.theremin .status, body.theremin .coach, body.therem
   body.theremin .toolbar .strings-link { display: none; }
   /* The theremin's toolbar is full on a phone: its song list shows the stars instead. */
   body.theremin .learn-stars { display: none; }
-  /* ...and Face lives in the help panel instead. */
-  body.theremin .toolbar .face-btn { display: none; }
 }
-body.theremin .face-btn { font-size: 16px; line-height: 1; filter: grayscale(1) opacity(0.75); }
-body.theremin .face-btn.on { filter: none; background: rgba(125,240,192,0.2); box-shadow: inset 0 0 0 1.5px rgba(125,240,192,0.75), 0 0 12px rgba(125,240,192,0.4); }
+

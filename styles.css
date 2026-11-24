@@ -250,6 +250,14 @@ body.lesson .toast.show { transform: translate(-50%, 0); }
 /* A narrow phone in a lesson has five lesson buttons: help steps aside to keep one row. */
 @media (max-width: 430px) { body.lesson #help { display: none; } }
 
+/* Face control toggle (both instruments): a round 🙂 that lights up when on.
+   On a narrow phone the toolbar is full, so it lives in the help panel. */
+.face-btn { font-size: 16px; line-height: 1; filter: grayscale(1) opacity(0.75); }
+.face-btn.on { filter: none; background: rgba(125,240,192,0.2); box-shadow: inset 0 0 0 1.5px rgba(125,240,192,0.75), 0 0 12px rgba(125,240,192,0.4); }
+@media (max-width: 430px) { .toolbar .face-btn { display: none; } }
+/* Air Strings' toolbar is wider: below 1010px the toggle stays in the help panel. */
+@media (max-width: 1010px) { body:not(.theremin) .toolbar .face-btn { display: none; } }
+
 /* ---- Song picker (both instruments) ---- */
 .song-picker {
   position: fixed; inset: 0; z-index: 14; display: grid; place-items: center;

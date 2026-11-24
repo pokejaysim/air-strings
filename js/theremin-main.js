@@ -132,7 +132,7 @@ function startDemo() {
 function stopDemo(finished) {
   if (!lesson.demo) return;
   loadLesson(); // a fresh run for their turn
-  toast(finished ? 'Your turn!' : 'Stopped. Your turn!', 2200);
+  say(finished ? 'Your turn!' : 'Stopped. Your turn!', 2200);
 }
 const toggleDemo = () => (lesson.demo ? stopDemo(false) : startDemo());
 /** (Re)start the current song in the current step. */
@@ -150,7 +150,7 @@ function loadLesson() {
   refreshLessonLabels();
 }
 function introToast() {
-  toast(`Song ${lesson.songIdx + 1}: ${lesson.song.title} — ${lesson.song.teaches}. Tap Listen to hear it first.`, 4200);
+  say(`Song ${lesson.songIdx + 1}: ${lesson.song.title} — ${lesson.song.teaches}. Tap Listen to hear it first.`, 4200);
 }
 function enterLesson() {
   lesson.active = true;
@@ -162,6 +162,7 @@ function enterLesson() {
 }
 function exitLesson() {
   lesson.active = false;
+  lesson.msg = null;
   lesson.demo = null;
   picker.close();
   document.body.classList.remove('lesson');
@@ -178,7 +179,7 @@ function setLessonSong(i) {
 function setLessonMode(m) {
   lesson.mode = m;
   loadLesson();
-  toast(m === 'learn' ? 'Step 1: find each note. The song waits for you.' : 'Step 2: play in time. Stay on the ribbon as it moves.', 2600);
+  say(m === 'learn' ? 'Step 1: find each note. The song waits for you.' : 'Step 2: play in time. Stay on the ribbon as it moves.', 2600);
 }
 function setLessonTempo(t) {
   lesson.tempo = t; store.set('theremin.tempo', t);
@@ -252,6 +253,8 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) synth
 window.addEventListener('pagehide', () => synth.silence());
 
 let toastTimer;
+/** Lesson messages show in the coach line (highlighted), clear of the ribbon. */
+function say(text, ms = 2600) { lesson.msg = { text, until: performance.now() + ms }; }
 function toast(text, ms = 1600) {
   const t = $('toast');
   t.textContent = text; t.classList.add('show');
@@ -269,6 +272,7 @@ function setCoach(c) {
   coachKey = key;
   $('coach').hidden = !c;
   if (!c) return;
+  $('coach').classList.toggle('msg', !!c.msg);
   $('coachStep').textContent = c.step; $('coachText').textContent = c.text;
   if (c.quiet) return; // lesson text changes with every note: don't re-animate
   const el = $('coach'); el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
@@ -442,7 +446,7 @@ function frame(now) {
     if (c > streak.last) {
       streak.upT = now;
       const m = lesson.mode === 'play' && streakMilestone(streak.last, c);
-      if (m) { const [x, y] = streakPos(); fx.burst(x, y, 45, 1); toast(`${m} in a row!`, 1600); }
+      if (m) { const [x, y] = streakPos(); fx.burst(x, y, 45, 1); say(`${m} in a row!`, 1600); }
     }
     streak.last = c;
     if (lesson.view.done && !lesson.cardShown) finishLesson();
@@ -518,7 +522,9 @@ function coach() {
 /** Coaching for a lesson: the words being sung, and where to move next. */
 function lessonCoach() {
   const v = lesson.view;
-  if (!app.started || !$('hint').hidden || !v || v.done || !v.target || picker.isOpen) return null;
+  if (!app.started || !$('hint').hidden || picker.isOpen) return null;
+  if (lesson.msg && performance.now() < lesson.msg.until && !lesson.cardShown) return { step: '✦', text: lesson.msg.text, quiet: true, msg: true };
+  if (!v || v.done || !v.target) return null;
   if (lesson.demo) return { step: '♪', text: `Listen: ${lesson.song.phrases[v.target.phrase]}`, quiet: true };
   const words = lesson.song.phrases[v.target.phrase];
   const r = app.reading || {};

@@ -211,6 +211,9 @@ body:not(.lesson) .lesson-only, body.lesson .free-only, body:not(.lesson-time) .
 #songKey .won { color: #ffd76a; letter-spacing: 1px; }
 body.lesson .coach { border-color: rgba(125,255,176,0.45); box-shadow: 0 10px 40px rgba(0,0,0,0.4); animation: none; }
 body.lesson .coach .step { background: linear-gradient(135deg, #7dffb0, #78e0ff); }
+/* A lesson message borrows the coach line for a moment. */
+body.lesson .coach.msg { border-color: rgba(255,215,106,0.7); }
+body.lesson .coach.msg .step { background: linear-gradient(135deg, #ffd76a, #ffb35c); }
 .lesson-card {
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 12;
   width: min(360px, calc(100vw - 32px)); padding: 20px 22px; border-radius: 18px; text-align: center;
@@ -308,4 +311,11 @@ body.lesson .toast.show { transform: translate(-50%, 0); }
   .song-picker .teaches { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .song-picker .scores { gap: 0; }
   .song-picker .st { font-size: 11px; }
+}
+/* A phone on its side in a lesson: the coach hugs the bottom edge in smaller
+   type so it stays clear of the strings (the status pill steps aside). */
+@media (max-height: 500px) {
+  body.lesson .coach { bottom: max(8px, env(safe-area-inset-bottom)); padding: 7px 12px 7px 8px; font-size: 13px; gap: 8px; border-radius: 12px; }
+  body.lesson .coach .step { width: 24px; height: 24px; font-size: 12px; }
+  body.lesson .status { display: none; }
 }

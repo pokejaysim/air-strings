@@ -28,6 +28,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     lastBeat: null,         // for the count-in ticks
     demo: null,             // 'Listen': a run the app plays by itself
     fxT: 0,
+    msg: null,              // a short message shown in the coach line
     streak: { last: 0, upT: 0 }, // for the streak counter's pop and milestones
     song: null,
     run: null,
@@ -40,6 +41,12 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   };
 
   const fx = new FX();
+  /**
+   * Lesson messages go in the coach line at the bottom (highlighted for a
+   * moment) rather than a pop-up near the top, where they used to cover the
+   * next-notes strip and the top string on a phone.
+   */
+  const say = (text, ms = 2600) => { L.msg = { text, until: performance.now() + ms }; };
 
   // ---------- helpers ----------
   const tol = (source) => {
@@ -121,10 +128,10 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     if (miss.length) {
       setStep('build');
       const names = miss.map(letter).join(', ');
-      ui.toast(`Song ${L.songIdx + 1}: ${L.song.title}. ${L.harp.size ? 'Add' : 'First draw'} the string${miss.length > 1 ? 's' : ''} it needs: ${names}. Tap Listen to hear it first.`, 4200);
+      say(`Song ${L.songIdx + 1}: ${L.song.title}. ${L.harp.size ? 'Add' : 'First draw'} the string${miss.length > 1 ? 's' : ''} it needs: ${names}. Tap Listen to hear it first.`, 4200);
     } else {
       setStep('play');
-      ui.toast(`Song ${L.songIdx + 1}: ${L.song.title}. Your harp already has every string it needs. Tap Listen to hear it first.`, 3800);
+      say(`Song ${L.songIdx + 1}: ${L.song.title}. Your harp already has every string it needs. Tap Listen to hear it first.`, 3800);
     }
   }
   function enter() {
@@ -148,6 +155,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     if (!L.active) return;
     stopDemo(true);
     picker.close();
+    L.msg = null;
     L.active = false;
     document.body.classList.remove('lesson', 'lesson-time');
     $('lessonCard').hidden = true;
@@ -176,7 +184,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       const miss = missing();
       for (const m of miss) addString(m, false);
       setStep('play');
-      ui.toast(miss.length ? 'Built the rest for you. Pluck the glowing string.' : 'Pluck the glowing string.', 2600);
+      say(miss.length ? 'Built the rest for you. Pluck the glowing string.' : 'Pluck the glowing string.', 2600);
     } else if (L.step === 'play') {
       startTimed();
     } else {
@@ -184,7 +192,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       bank.strings = [];
       L.harp.clear();
       setStep('build');
-      ui.toast('Harp cleared. Draw the strings again.', 2400);
+      say('Harp cleared. Draw the strings again.', 2400);
     }
   }
 
@@ -207,8 +215,8 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     refreshLabels();
     if (quiet) return;
     setStep(L.step); // a fresh run for them to try
-    if (L.step === 'build') ui.toast(finished ? 'Now build the strings it needs.' : 'Stopped.', 2200);
-    else ui.toast(finished ? 'Your turn!' : 'Stopped. Your turn!', 2200);
+    if (L.step === 'build') say(finished ? 'Now build the strings it needs.' : 'Stopped.', 2200);
+    else say(finished ? 'Your turn!' : 'Stopped. Your turn!', 2200);
   }
   const toggleDemo = () => (L.demo ? stopDemo(false) : startDemo());
   function demoFrame(now) {
@@ -249,7 +257,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       if (m) {
         const [x, y] = streakPos();
         fx.burst(x, y, 45, 1);
-        ui.toast(`${m} in a row!`, 1600);
+        say(`${m} in a row!`, 1600);
       }
     }
     st.last = c;
@@ -261,7 +269,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
 
   function startTimed() {
     setStep('time');
-    ui.toast(`In time at ${STRING_TEMPOS[L.tempo].label.toLowerCase()} speed: pluck each string as its note reaches the line.`, 3200);
+    say(`In time at ${STRING_TEMPOS[L.tempo].label.toLowerCase()} speed: pluck each string as its note reaches the line.`, 3200);
   }
   function setTempo(t) {
     L.tempo = STRING_TEMPOS[t] ? t : 'slow';
@@ -283,7 +291,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       addString(slot.midi, true);
       if (!missing().length) {
         setStep('play');
-        ui.toast('Your harp is ready! Now pluck the glowing string.', 3000);
+        say('Your harp is ready! Now pluck the glowing string.', 3000);
       }
       return;
     }
@@ -295,7 +303,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       long: `Too long: that would sound lower than ${want.name}. Let go at the ring.`,
       crooked: 'Right length! Follow the dashed line to the ring.',
     }[drawFeedback(line, want, t)];
-    ui.toast(msg, 2800);
+    say(msg, 2800);
   }
 
   /** While drawing: show the note this length would play, and a tick once it fills a slot. */
@@ -360,7 +368,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     if (res === 'right') sparkle(midi, 0.7);
     if (res === 'wrong' && now - L.lastHintT > 2500) {
       L.lastHintT = now;
-      ui.toast(`That was ${letter(midi)}. The glowing string is ${want.name}.`, 2000);
+      say(`That was ${letter(midi)}. The glowing string is ${want.name}.`, 2000);
     }
     if (L.run.done) finish();
   }
@@ -404,6 +412,10 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   function coach() {
     if (!L.active || !app.started || ui.hintOpen || !L.song || L.cardShown || picker.isOpen) return null;
     const hand = !app.mouseMode;
+    if (L.msg && performance.now() < L.msg.until) {
+      if (shortTimed() && L.run && L.run.started) return null; // the strings need that room
+      return { step: '✦', text: L.msg.text, quiet: true, msg: true };
+    }
     if (L.demo) {
       if (shortTimed()) return null; // the strings need that room
       const t = L.demo.target;
@@ -478,8 +490,10 @@ export function createStringLessons({ app, bank, interaction, ui }) {
         ctx.strokeStyle = `rgba(125,255,176,${0.55 + 0.4 * pulse})`; ctx.lineWidth = 2.5; ctx.stroke();
         ctx.font = '600 11px ui-rounded, system-ui, sans-serif';
         ctx.fillStyle = 'rgba(214,255,232,0.9)';
-        const sx = wide ? -1 : 0, sy = wide ? 0 : 1; // put the words clear of the line
-        ctx.textAlign = wide ? 'right' : 'center';
+        // Put the words clear of the line: to its left, unless that runs off the screen.
+        const side = wide && s.ax < 130 ? 1 : -1;
+        const sx = wide ? side : 0, sy = wide ? 0 : 1;
+        ctx.textAlign = wide ? (side < 0 ? 'right' : 'left') : 'center';
         ctx.fillText('start here', s.ax + sx * 18, s.ay + sy * 24);
         ctx.fillText('stretch to here', s.bx + sx * (ring + 8), s.by + sy * (ring + 12));
         ctx.font = '700 13px ui-rounded, system-ui, sans-serif';

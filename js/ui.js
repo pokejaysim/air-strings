@@ -59,6 +59,7 @@ export class UI {
     this.coachKey = key;
     $('coach').hidden = !coach;
     if (!coach) return;
+    $('coach').classList.toggle('msg', !!coach.msg);
     $('coachStep').textContent = coach.step;
     $('coachText').textContent = coach.text;
     if (coach.quiet) return; // lesson text changes often: don't re-animate

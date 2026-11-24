@@ -5,6 +5,7 @@
 // exact same interaction code as real hands.
 
 import { OneEuro2D } from './one-euro.js';
+import { fingerStates, shapeOf, isOpenPalm } from './hand-signs.js';
 
 const THUMB_TIP = 4, INDEX_TIP = 8, WRIST = 0, INDEX_MCP = 5, MIDDLE_MCP = 9, PINKY_MCP = 17;
 
@@ -118,6 +119,12 @@ export class HandGestures {
         st.gesture = det.gesture || null;
         st.indexCurl = Math.hypot(ix.x - imcp.x, ix.y - imcp.y) / Math.max(20, st.handSize);
         st.fist = !!st.gesture && st.gesture.name === 'Closed_Fist' && st.gesture.score >= FIST_SCORE && st.indexCurl < FIST_CURL;
+        // Shapes the model doesn't know (rock horns, call me, three fingers) come from finger positions.
+        const fingers = fingerStates(L, vw, vh);
+        const model = st.gesture ? st.gesture.name : null;
+        st.shape = shapeOf(fingers, model);
+        st.shapeScore = st.shape === model ? (st.gesture ? st.gesture.score : 0) : 0.9;
+        st.openPalm = isOpenPalm(fingers, model);
         const was = st.pinching;
         if (!was && st.fist) {
           st.closeFrames = 0; // making a fist never starts a pinch
@@ -176,8 +183,9 @@ export class HandGestures {
       lost,
       pinchRatio: st.pinchRatio,
       handSize: st.handSize,
-      gesture: lost || !st.gesture ? null : st.gesture.name,
-      gestureScore: lost || !st.gesture ? 0 : st.gesture.score,
+      gesture: lost ? null : st.shape || null,
+      gestureScore: lost ? 0 : st.shapeScore || 0,
+      openPalm: !lost && !!st.openPalm,
       fist: !lost && !!st.fist,
     };
   }

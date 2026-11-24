@@ -15,7 +15,7 @@ import { parseFace, FaceControls, CAL_MS, MOUTH_RANGE, BROW_ON, BROW_OFF, LOST_M
 import { faceFilter, vibratoCents, VIBRATO_MAX_CENTS } from './theremin-synth.js';
 import { StringSynth } from './audio.js';
 import { FaceSession } from './face.js';
-import { SignWatcher, SIGNS, GAP_MS, SHOW_AFTER_MS, COOLDOWN_MS, MIN_SCORE } from './hand-signs.js';
+import { SignWatcher, SIGNS, GAP_MS, SHOW_AFTER_MS, COOLDOWN_MS, MIN_SCORE, fingerStates, shapeOf, isOpenPalm, WAVE_TURNS, WAVE_STALL_MS } from './hand-signs.js';
 import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun, StringTimedRun, timedGeometry, STRING_TEMPOS, PERFECT_SEC, WINDOW_SEC } from './string-lessons.js';
 
 const results = [];
@@ -992,6 +992,99 @@ test('A fist never starts a pinch, but a pinch with curled fingers still does', 
   for (let i = 0; i < 5; i++) p = g.update(hand(true, null), video, 1280, 720, (t += 33))[0];
   for (let i = 0; i < 5; i++) p = g.update(hand(true, fist), video, 1280, 720, (t += 33))[0];
   assert(p.pinching, 'a fist label mid-draw must not drop the string');
+});
+
+// ---- more hand signs ----
+/** A plausible hand: each finger 'up' or 'down', thumb 'out' or 'in'. */
+function shapedHand({ thumb = 'in', index = 'down', middle = 'down', ring = 'down', pinky = 'down' } = {}) {
+  const L = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
+  L[0] = { x: 0.5, y: 0.8, z: 0 };
+  const cols = { index: [5, 0.44], middle: [9, 0.48], ring: [13, 0.52], pinky: [17, 0.56] };
+  const st = { index, middle, ring, pinky };
+  for (const [name, [mcp, x]] of Object.entries(cols)) {
+    L[mcp] = { x, y: 0.6, z: 0 };
+    const up = st[name] === 'up';
+    L[mcp + 1] = { x, y: up ? 0.5 : 0.52, z: 0 };        // PIP
+    L[mcp + 2] = { x, y: up ? 0.44 : 0.58, z: 0 };       // DIP
+    L[mcp + 3] = { x, y: up ? 0.38 : 0.62, z: 0 };       // tip
+  }
+  L[9] = { x: 0.5, y: 0.6, z: 0 };
+  L[1] = { x: 0.44, y: 0.72, z: 0 }; L[2] = { x: 0.4, y: 0.68, z: 0 };
+  L[3] = thumb === 'out' ? { x: 0.36, y: 0.64, z: 0 } : { x: 0.45, y: 0.64, z: 0 };
+  L[4] = thumb === 'out' ? { x: 0.3, y: 0.6, z: 0 } : { x: 0.49, y: 0.62, z: 0 };
+  return L;
+}
+test('Finger signs: shapes read from finger positions', () => {
+  const sh = (o, model = null) => shapeOf(fingerStates(shapedHand(o)), model);
+  assert(sh({ index: 'up', pinky: 'up', thumb: 'in' }) === 'Rock_Horns', 'rock horns');
+  assert(sh({ index: 'up', pinky: 'up', thumb: 'out' }) === 'ILoveYou', 'I love you (thumb out)');
+  assert(sh({ pinky: 'up', thumb: 'out' }) === 'Call_Me', 'call me');
+  assert(sh({ index: 'up', middle: 'up', ring: 'up' }) === 'Three_Fingers', 'three fingers');
+  assert(sh({ index: 'up', middle: 'up', ring: 'up', thumb: 'out' }) === 'Three_Fingers', 'three fingers, thumb either way');
+  assert(sh({ thumb: 'out' }, 'Thumb_Up') === 'Thumb_Up', 'model label kept for thumbs up');
+  assert(sh({ index: 'up', middle: 'up' }, 'Victory') === 'Victory', 'victory kept');
+  assert(sh({ index: 'up', middle: 'up', ring: 'up', pinky: 'up', thumb: 'out' }, 'Open_Palm') === 'Open_Palm', 'open palm is no sign');
+  assert(isOpenPalm(fingerStates(shapedHand({ index: 'up', middle: 'up', ring: 'up', pinky: 'up', thumb: 'out' }))), 'open palm from fingers');
+  assert(!isOpenPalm(fingerStates(shapedHand({ index: 'up', middle: 'up', ring: 'up' }))), 'three fingers is not open');
+  // A half-bent finger is "unsure": no finger sign from it.
+  const L = shapedHand({ index: 'up', pinky: 'up' });
+  L[20] = { x: 0.56, y: 0.47, z: 0 }; // tip only a little past its middle joint
+  const f = fingerStates(L);
+  assert(f.pinky === null && shapeOf(f, null) === null, `half-bent pinky: ${f.pinky}`);
+});
+test('Finger signs reach the pointer through the gesture layer', () => {
+  const g = new HandGestures(), video = { videoWidth: 1280, videoHeight: 720 };
+  const det = (o, gesture = null) => [{ landmarks: shapedHand(o), handedness: 'Right', score: 1, gesture }];
+  let p = g.update(det({ index: 'up', pinky: 'up' }), video, 1280, 720, 0)[0];
+  assert(p.gesture === 'Rock_Horns' && p.gestureScore >= MIN_SCORE, JSON.stringify([p.gesture, p.gestureScore]));
+  p = g.update(det({ index: 'up', middle: 'up', ring: 'up', pinky: 'up', thumb: 'out' }, { name: 'Open_Palm', score: 0.8 }), video, 1280, 720, 33)[0];
+  assert(p.openPalm && p.gesture === 'Open_Palm', 'open palm flagged');
+});
+const wavePtr = (x, extra = {}) => ({ id: 'hand:w', source: 'hand', x, y: 300, palmX: x, palmY: 320, handSize: 100, pinching: false, lost: false, gesture: 'Open_Palm', gestureScore: 0.8, openPalm: true, ...extra });
+const waveRun = (w, amp, { period = 400, ms = 2400, extra = {}, can } = {}) => {
+  const fired = []; let ringMax = 0;
+  for (let t = 0; t <= ms; t += 33) {
+    const r = w.update([wavePtr(500 + amp * Math.sin((t / period) * 2 * Math.PI), extra)], t, can);
+    fired.push(...r.fired.map((f) => f.name));
+    for (const g of r.rings) if (g.name === 'Wave') ringMax = Math.max(ringMax, g.progress);
+  }
+  return { fired: fired.filter((n) => n === 'Wave'), ringMax };
+};
+test('Wave: an open palm waved side to side says goodbye, once', () => {
+  const r = waveRun(new SignWatcher(), 60);
+  assert(r.fired.length === 1 && r.fired[0] === 'Wave', JSON.stringify(r.fired));
+  assert(r.ringMax === 1, 'the ring fills as you wave');
+  // Stop, hold still, then wave again: a second goodbye.
+  const w = new SignWatcher(); let t = 0, n = 0;
+  const go = (ms, amp) => { for (let e = 0; e < ms; e += 33) { t += 33; n += w.update([wavePtr(500 + amp * Math.sin((t / 400) * 2 * Math.PI))], t).fired.filter((f) => f.name === 'Wave').length; } };
+  go(2000, 60); go(WAVE_STALL_MS + 400, 0); go(2000, 60);
+  assert(n === 2, `waves after a pause: ${n}`);
+});
+test('Wave: small wobbles, a pinch, a fist or a slow drift are not a wave', () => {
+  assert(waveRun(new SignWatcher(), 12).fired.length === 0, 'wobble (vibrato) is too small');
+  assert(waveRun(new SignWatcher(), 60, { extra: { pinching: true } }).fired.length === 0, 'pinching');
+  assert(waveRun(new SignWatcher(), 60, { extra: { openPalm: false, gesture: 'Closed_Fist' } }).fired.length === 0, 'not an open hand');
+  assert(waveRun(new SignWatcher(), 60, { period: WAVE_STALL_MS * 4 }).fired.length === 0, 'too slow to be a wave');
+  assert(waveRun(new SignWatcher(), 60, { can: (n) => n !== 'Wave' }).fired.length === 0, 'not wanted right now');
+  assert(WAVE_TURNS >= 3, 'needs a real back-and-forth');
+});
+test('Two hands: both thumbs up is one sign, not two', () => {
+  const w = new SignWatcher();
+  const a = signPtr('Thumb_Up', { id: 'hand:a', palmX: 300 }), b = signPtr('Thumb_Up', { id: 'hand:b', palmX: 700 });
+  let t = 0; const fired = []; let ring = null;
+  for (let i = 0; i < 40; i++) { const r = w.update([a, b], (t += 33)); fired.push(...r.fired.map((f) => f.name)); ring = r.rings[0] || ring; }
+  assert(fired.length === 1 && fired[0] === 'Both_Thumbs_Up', JSON.stringify(fired));
+  assert(ring && ring.x === 500 && ring.emoji === SIGNS.Both_Thumbs_Up.emoji, 'one ring between the hands');
+});
+test('Two hands: when the pair means nothing right now, each hand can still sign', () => {
+  const w = new SignWatcher();
+  const a = signPtr('Closed_Fist', { id: 'hand:a', palmX: 300 }), b = signPtr('Closed_Fist', { id: 'hand:b', palmX: 700 });
+  let t = 0; const fired = [];
+  for (let i = 0; i < 40; i++) fired.push(...w.update([a, b], (t += 33), (n) => n !== 'Both_Fists').fired.map((f) => f.name));
+  assert(fired.includes('Closed_Fist') && !fired.includes('Both_Fists'), JSON.stringify(fired));
+  const w2 = new SignWatcher(); t = 0; const fired2 = [];
+  for (let i = 0; i < 40; i++) fired2.push(...w2.update([a, b], (t += 33)).fired.map((f) => f.name));
+  assert(fired2.length === 1 && fired2[0] === 'Both_Fists', JSON.stringify(fired2));
 });
 
 // ---- face control ----

@@ -699,6 +699,29 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       if (!dry) { setStep(L.step); say('Starting the song again.', 1800); }
       return true;
     }
+    if (name === 'Three_Fingers') { // Listen / stop listening
+      if (picker.isOpen) return false;
+      if (!dry) toggleDemo();
+      return true;
+    }
+    if (name === 'Wave') { // goodbye: back to free play
+      if (!dry) exit();
+      return true;
+    }
+    if (name === 'Both_Thumbs_Up') { // straight to playing in time
+      if (picker.isOpen || (L.step === 'time' && card === false && L.run && !L.run.done)) return false;
+      if (!dry) {
+        const miss = missing();
+        for (const m of miss) addString(m, false);
+        startTimed();
+      }
+      return true;
+    }
+    if (name === 'Both_Fists') { // stop the song playing for you
+      if (!L.demo) return false;
+      if (!dry) stopDemo(false);
+      return true;
+    }
     return false;
   }
 

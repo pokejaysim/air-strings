@@ -47,6 +47,7 @@ const interaction = new Interaction({
       if (!app.plucked) app.strumTipUntil = performance.now() + 6000;
       app.plucked = true;
       if (ev.type === 'strum') app.strummed = true;
+      app.lastPlayT = performance.now(); // a wave across strings is a strum, not a goodbye
     } else if (ev.type === 'tooQuick') {
       // Only explain while they're still learning; otherwise it's likely a strum.
       if (bank.strings.length === 0 && !app.mouseMode && !lessons.active) ui.toast('Hold the pinch for a moment, then drag, to draw.', 2600);
@@ -57,17 +58,36 @@ const interaction = new Interaction({
 
 ui = new UI({
   // Undo, Clear and Snap belong to free play; a lesson manages its own strings.
-  onUndo() { if (lessons.active) return; if (bank.undo()) ui.toast('Removed last string'); },
-  onClear() { if (lessons.active) return; interaction.reset(); const n = bank.clear(); if (n) ui.toast(`Cleared ${n} string${n > 1 ? 's' : ''}`); },
-  onScale(s) {
-    if (lessons.active) return;
-    bank.setScale(s);
-    ui.setScale(s);
-    ui.toast({ off: 'Snap off: exact pitch from length', chromatic: 'Snap: chromatic', pentatonic: 'Snap: E major pentatonic' }[s]);
-  },
+  onUndo() { if (lessons.active) return; undoOne(); },
+  onClear() { if (lessons.active) return; clearStrings(); },
+  onScale(s) { setScale(s); },
   onVolume(v) { synth.setVolume(v); },
 });
 ui.setScale(bank.scale);
+function setScale(s) {
+  if (lessons.active) return;
+  bank.setScale(s);
+  ui.setScale(s);
+  ui.toast({ off: 'Snap off: exact pitch from length', chromatic: 'Snap: chromatic', pentatonic: 'Snap: E major pentatonic' }[s]);
+}
+// Clearing can be undone for a few seconds (a wave or two fists clears too).
+const RESTORE_MS = 8000;
+let cleared = null; // { strings, until }
+const canRestore = () => !!cleared && performance.now() < cleared.until && bank.strings.length === 0;
+function clearStrings(how = '') {
+  interaction.reset();
+  const n = bank.strings.length;
+  if (!n) return;
+  cleared = { strings: bank.strings.slice(), until: performance.now() + RESTORE_MS };
+  bank.clear();
+  ui.toast(`${how}Cleared ${n} string${n > 1 ? 's' : ''}. Undo brings ${n > 1 ? 'them' : 'it'} back.`, 2600);
+}
+function undoOne() {
+  if (canRestore()) {
+    bank.strings = cleared.strings; cleared = null;
+    ui.toast('Strings back');
+  } else if (bank.undo()) ui.toast('Removed last string');
+}
 lessons = createStringLessons({ app, bank, interaction, ui });
 
 if (app.mouseMode) {
@@ -212,19 +232,37 @@ function coach(now) {
 // ---------------- Hand signs ----------------
 // Hold a shape for a moment: fist mutes, thumbs up says yes, thumbs down goes
 // back, victory switches instrument, "I love you" throws confetti.
+const SCALES = ['off', 'chromatic', 'pentatonic'];
 function canSign(name) {
   if (!app.started || ui.hintOpen) return false;
-  if (name === 'Closed_Fist') return bank.ringing;
-  if (name === 'Thumb_Up') return lessons.sign(name, true);
-  if (name === 'Thumb_Down') return lessons.active ? lessons.sign(name, true) : bank.strings.length > 0;
-  return true; // Victory, ILoveYou
+  const free = !lessons.active;
+  switch (name) {
+    case 'Closed_Fist': return bank.ringing;
+    case 'Thumb_Up': return lessons.sign(name, true);
+    case 'Thumb_Down': return free ? bank.strings.length > 0 || canRestore() : lessons.sign(name, true);
+    case 'Rock_Horns': return free; // next Snap scale
+    case 'Call_Me': return true; // Face on/off
+    case 'Three_Fingers': return lessons.sign(name, true); // Listen
+    case 'Wave': // goodbye: leave the lesson, or clear the strings (not if that hand was strumming)
+      if (performance.now() - (app.lastPlayT || 0) < 1200) return false;
+      return free ? bank.strings.length > 0 : lessons.sign(name, true);
+    case 'Both_Thumbs_Up': return lessons.sign(name, true);
+    case 'Both_Fists': return free ? bank.strings.length > 0 : lessons.sign(name, true);
+    default: return true; // Victory, ILoveYou
+  }
 }
 function runSign(name) {
+  const free = !lessons.active;
   if (name === 'Closed_Fist') { synth.stopAll(); bank.damp(); }
-  else if (name === 'Thumb_Up') lessons.sign(name);
+  else if (name === 'Thumb_Up' || name === 'Three_Fingers' || name === 'Both_Thumbs_Up') lessons.sign(name);
   else if (name === 'Thumb_Down') {
-    if (lessons.active) lessons.sign(name);
-    else if (bank.undo()) ui.toast('Removed last string');
+    if (!free) lessons.sign(name);
+    else undoOne();
+  } else if (name === 'Rock_Horns') setScale(SCALES[(SCALES.indexOf(bank.scale) + 1) % SCALES.length]);
+  else if (name === 'Call_Me') setFace(!face.on);
+  else if (name === 'Wave') { if (free) clearStrings('👋 '); else { lessons.sign(name); ui.toast('👋 Back to free play'); } }
+  else if (name === 'Both_Fists') {
+    if (free) { synth.stopAll(); clearStrings('✊✊ '); } else lessons.sign(name);
   } else if (name === 'Victory') {
     ui.toast('Off to the theremin…', 1200);
     setTimeout(() => { location.href = 'theremin.html'; }, 450);

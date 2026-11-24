@@ -12,7 +12,7 @@ import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame, streakMilesto
 import { drawRibbon, ribbonGeometry } from './lesson-view.js';
 import { FX, drawStreak } from './fx.js';
 import { createSongPicker, suggestedSong } from './song-picker.js';
-import { SignWatcher, drawSignRings, signsEnabled, setSignsEnabled } from './hand-signs.js';
+import { SignWatcher, drawSignRings, signsEnabled, setSignsEnabled, FINGER_SIGNS } from './hand-signs.js';
 import { FaceSession, drawFaceBadge } from './face.js';
 
 // Right after an update a browser can pair a cached older page with newer
@@ -566,16 +566,50 @@ function lessonSign(name, dry = false) {
     if (!dry) { loadLesson(); say('Starting the song again.', 1800); }
     return true;
   }
+  if (name === 'Three_Fingers') { // Listen / stop listening
+    if (picker.isOpen) return false;
+    if (!dry) toggleDemo();
+    return true;
+  }
+  if (name === 'Wave') { // goodbye: back to free play
+    if (!dry) exitLesson();
+    return true;
+  }
+  if (name === 'Both_Thumbs_Up') { // straight to playing in time
+    if (picker.isOpen || (lesson.mode === 'play' && !lesson.cardShown && !lesson.demo)) return false;
+    if (!dry) setLessonMode('play');
+    return true;
+  }
+  if (name === 'Both_Fists') { // stop the song playing for you
+    if (!lesson.demo) return false;
+    if (!dry) stopDemo(false);
+    return true;
+  }
   return false;
 }
-function canSign(name) {
+/** The hand playing a note right now: its shapes are music, not signs (fist aside). */
+const isPlayingHand = (p) => !!(p && app.reading && app.reading.sounding && app.roles.pitch && app.roles.pitch.id === p.id);
+function canSign(name, p) {
   if (!app.started || !$('hint').hidden) return false;
-  if (name === 'Closed_Fist') return app.fistMute || !!(app.reading && app.reading.sounding);
-  if (name === 'Thumb_Up' || name === 'Thumb_Down') return lessonSign(name, true);
-  return true; // Victory, ILoveYou
+  if ((FINGER_SIGNS.includes(name) || name === 'Wave') && isPlayingHand(p)) return false;
+  switch (name) {
+    case 'Closed_Fist': return app.fistMute || !!(app.reading && app.reading.sounding);
+    case 'Rock_Horns': return !lesson.active; // next voice
+    case 'Call_Me': return true; // Face on/off
+    case 'Three_Fingers': return lesson.active ? lessonSign(name, true) : true; // Listen, or next range
+    case 'Wave': return lessonSign(name, true);
+    case 'Thumb_Up': case 'Thumb_Down': case 'Both_Thumbs_Up': case 'Both_Fists': return lessonSign(name, true);
+    default: return true; // Victory, ILoveYou
+  }
 }
 function runSign(name) {
-  if (name === 'Thumb_Up' || name === 'Thumb_Down') lessonSign(name);
+  if (name === 'Wave') { lessonSign(name); toast('👋 Back to free play'); }
+  else if (['Thumb_Up', 'Thumb_Down', 'Both_Thumbs_Up', 'Both_Fists'].includes(name)) lessonSign(name);
+  else if (name === 'Three_Fingers') {
+    if (lesson.active) lessonSign(name);
+    else { cycleRange(); toast(`Range: ${RANGES[settings.range].label}`); }
+  } else if (name === 'Rock_Horns') { cycleVoice(); toast(`Voice: ${VOICES[settings.voice].label}`); }
+  else if (name === 'Call_Me') setFace(!face.on);
   else if (name === 'Victory') {
     toast('Off to Air Strings…', 1200);
     setTimeout(() => { location.href = 'index.html'; }, 450);

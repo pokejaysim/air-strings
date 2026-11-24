@@ -16,16 +16,21 @@
   <header class="toolbar" id="toolbar" hidden>
     <a class="brand" href="./" title="Back to Air Strings"><span class="logo" aria-hidden="true"></span>Air Theremin</a>
     <div class="group">
-      <button id="assistBtn" class="cycle-btn" title="Pitch assist: Off / Gentle / Snap (A)"><span class="k">Assist</span><span class="v" id="assistVal">Gentle</span></button>
-      <button id="voiceBtn" class="cycle-btn" title="Voice: Classic / Soft / Sci-fi (V)"><span class="k">Voice</span><span class="v" id="voiceVal">Classic</span></button>
-      <button id="scaleBtn" class="cycle-btn" title="Scale (S)"><span class="k">Scale</span><span class="v" id="scaleVal">Pentatonic</span></button>
-      <button id="rangeBtn" class="cycle-btn" title="Range: Low C2–C4 / Mid C3–C5 / High C4–C6 (R)"><span class="k">Range</span><span class="v" id="rangeVal">Mid</span></button>
+      <button id="assistBtn" class="cycle-btn free-only" title="Pitch assist: Off / Gentle / Snap (A)"><span class="k">Assist</span><span class="v" id="assistVal">Gentle</span></button>
+      <button id="voiceBtn" class="cycle-btn free-only" title="Voice: Classic / Soft / Sci-fi (V)"><span class="k">Voice</span><span class="v" id="voiceVal">Classic</span></button>
+      <button id="scaleBtn" class="cycle-btn free-only" title="Scale (S)"><span class="k">Scale</span><span class="v" id="scaleVal">Pentatonic</span></button>
+      <button id="rangeBtn" class="cycle-btn free-only" title="Range: Low C2–C4 / Mid C3–C5 / High C4–C6 (R)"><span class="k">Range</span><span class="v" id="rangeVal">Mid</span></button>
+      <button id="learnBtn" class="cycle-btn learn free-only" title="Learn to play a song, step by step (L)"><span class="k">Learn</span><span class="v">Songs</span></button>
+      <button id="songBtn" class="cycle-btn lesson-only" title="Next song"><span class="k" id="songKey">Song</span><span class="v" id="songVal">Hot Cross Buns</span></button>
+      <button id="stepBtn" class="cycle-btn lesson-only" title="Step 1: find each note at your own pace. Step 2: play it in time."><span class="k">Step</span><span class="v" id="stepVal">1 · Learn</span></button>
+      <button id="speedBtn" class="cycle-btn lesson-only" title="Speed: Slow / Medium / Fast"><span class="k">Speed</span><span class="v" id="speedVal">Slow</span></button>
+      <button id="exitLessonBtn" class="cycle-btn lesson-only" title="Back to free play (L)"><span class="k">Lesson</span><span class="v">Exit</span></button>
     </div>
     <label class="group volume" title="Master volume">
       <span class="label">Vol</span>
       <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Master volume">
     </label>
-    <a class="icon-btn" href="./" title="Switch to Air Strings">Strings</a>
+    <a class="icon-btn strings-link free-only" href="./" title="Switch to Air Strings">Strings</a>
     <button id="help" class="icon-btn round" title="How to play (H)" aria-label="Help">?</button>
   </header>
 
@@ -35,6 +40,16 @@
   <button class="sound-banner" id="soundBanner" hidden>
     <span class="spk" aria-hidden="true"></span>Sound paused. Tap to turn it on.
   </button>
+
+  <section class="lesson-card" id="lessonCard" hidden>
+    <div class="stars" id="lessonStars" aria-hidden="true"></div>
+    <h2 id="lessonTitle"></h2>
+    <p id="lessonMsg"></p>
+    <div class="row">
+      <button id="lessonPrimary" class="primary small"></button>
+      <button id="lessonSecondary" class="secondary small"></button>
+    </div>
+  </section>
 
   <section class="overlay" id="start">
     <div class="card">
@@ -75,9 +90,11 @@
         <p><b>Off</b> is a real theremin (hard!). <b>Gentle</b> pulls you toward the scale. <b>Snap</b> always lands on a note.</p>
       </div>
     </div>
+    <p class="hint-note"><b>Learn</b> teaches you a song: first find each note at your own pace (the song waits for you), then follow the ribbon in time for stars.</p>
     <p class="hint-note"><span class="hand-only">Pinch and hold a toolbar button for a moment to press it (your left hand is quietest for this). </span>Range sets the octaves: Low C2–C4, Mid C3–C5, High C4–C6.</p>
-    <p class="keys"><kbd>A</kbd> assist · <kbd>V</kbd> voice · <kbd>S</kbd> scale · <kbd>R</kbd> range · <kbd>H</kbd> help</p>
+    <p class="keys"><kbd>A</kbd> assist · <kbd>V</kbd> voice · <kbd>S</kbd> scale · <kbd>R</kbd> range · <kbd>L</kbd> learn a song · <kbd>H</kbd> help</p>
     <button id="hintOk" class="primary small">Got it</button>
+    <a class="link" href="./">Switch to Air Strings</a>
   </aside>
 
   <script type="module" src="js/theremin-main.js"></script>

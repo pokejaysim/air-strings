@@ -185,11 +185,12 @@ export class ThereminState {
 
   /**
    * @param points [{id, x, y, source, firstSeen?}] — already excludes hands at the toolbar
-   * @param settings {assist, scale, range}
+   * @param settings {assist, scale, range, customRange?: {low, high}}
    * @param now ms
    */
   step(points, layout, settings, now) {
-    const range = RANGES[settings.range] || RANGES.mid;
+    // A lesson can supply its own range (fitted to the song).
+    const range = settings.customRange || RANGES[settings.range] || RANGES.mid;
     // A brand-new hand must be seen briefly before it can play (passing hands are ignored).
     const live = new Set();
     const ready = points.filter((p) => {

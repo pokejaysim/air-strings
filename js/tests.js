@@ -6,6 +6,8 @@ import { StringBank } from './strings.js';
 import { Interaction, TUNING } from './interaction.js';
 import { HandGestures, videoToScreen, PINCH_ON, PINCH_OFF } from './gestures.js';
 import * as TH from './theremin-map.js';
+import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GATE_SEC, COUNT_IN_BEATS } from './lessons.js';
+import { ribbonGeometry } from './lesson-view.js';
 
 const results = [];
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
@@ -497,6 +499,134 @@ test('Hands keep their identity when MediaPipe flips Left/Right labels', () => {
     assert(before && before[1] === p.id, `hand at ${Math.round(p.palmX)} changed id`);
   }
   assert(b.length === 2, `ghost hands: ${b.length}`);
+});
+
+// ---- lessons ----
+const song = (id) => buildSong(SONGS.find((s) => s.id === id));
+const playAt = (midi) => ({ pitchPresent: true, sounding: true, midi });
+const noHand = { pitchPresent: false, sounding: false, midi: null };
+/** Run a timed lesson with a player who plays pickNote(lesson) each frame. */
+function runTimed(lesson, pick, dt = 1 / 60) {
+  let guard = 0;
+  while (!lesson.done && guard++ < 100000) lesson.step(pick(lesson), dt);
+  return lesson.result();
+}
+/** The note that is due at a given beat (first note during the count-in). */
+function noteAtBeat(s, beat) {
+  let n = s.notes[0];
+  for (const x of s.notes) if (x.start <= beat) n = x;
+  return n;
+}
+test('Lessons: note names and song parsing', () => {
+  assert(noteToMidi('C4') === 60 && noteToMidi('A4') === 69 && noteToMidi('F#3') === 54, 'note names');
+  const s = song('buns');
+  assert(s.notes.length === 17, `Hot Cross Buns has ${s.notes.length} notes`);
+  assert(s.totalBeats === 16, `Hot Cross Buns is ${s.totalBeats} beats`);
+  assert(s.notes[2].beats === 2 && s.notes[3].start === 4, 'long note timing');
+  assert(s.notes[6].beats === 0.5, 'short notes');
+});
+test('Lessons: every song fits C major and its own range', () => {
+  for (const def of SONGS) {
+    const s = buildSong(def), r = lessonRange(s);
+    const scale = TH.scaleNotes('major', r.low, r.high);
+    for (const n of s.notes) assert(scale.includes(n.midi), `${def.id}: ${n.name} is not in the scale`);
+    assert(r.high - r.low >= 12, `${def.id}: range too narrow`);
+    assert(s.min - r.low >= 3 && r.high - s.max >= 3, `${def.id}: notes too close to the edge`);
+    assert(s.notes.every((n) => s.phrases[n.phrase]), `${def.id}: note without a phrase`);
+  }
+});
+test('Lessons: the theremin plays in the song\'s range and snaps to its notes', () => {
+  const s = song('sheep'), range = lessonRange(s);
+  const L = TH.layoutFor(1200, 700), S = new TH.ThereminState();
+  const set = thSettings({ assist: 'snap', scale: 'major', customRange: range });
+  let t = 0;
+  for (const n of [60, 67, 69, 62]) {
+    const x = TH.axisToScreen(TH.midiToAxis(n + 0.2, range.low, range.high), L);
+    let out;
+    for (let i = 0; i < 40; i++) out = S.step([hp('p', x, 300)], L, set, (t += 33));
+    assert(out.midi === n, `hand near ${n} plays ${out.midi}`);
+    assert(out.range.low === range.low && out.range.high === range.high, 'range passed through');
+  }
+});
+test('Lessons (learn): the song only moves while you are on the note', () => {
+  const l = new Lesson(song('buns'), { mode: 'learn', bpm: 60 });
+  for (let i = 0; i < 200; i++) l.step(playAt(60), 1 / 60); // wrong note (C, target is E)
+  assert(l.pos === 0 && l.index === 0, 'moved while on the wrong note');
+  assert(l.view().direction === 1, 'should point up toward E');
+  for (let i = 0; i < 200; i++) l.step(noHand, 1 / 60);
+  assert(l.pos === 0 && l.view().direction === 0, 'moved with no hand up');
+  for (let i = 0; i < 30; i++) l.step(playAt(64), 1 / 60); // half a beat on E
+  assert(l.index === 0 && near(l.pos, 0.5, 1e-6), `halfway through the note: pos ${l.pos}`);
+  for (let i = 0; i < 31; i++) l.step(playAt(64), 1 / 60);
+  assert(l.index === 1 && l.pos === 1, `should be waiting at note 2: index ${l.index} pos ${l.pos}`);
+  assert(l.view().direction === -1, 'now points down toward D');
+  for (let i = 0; i < 200; i++) l.step(playAt(64), 1 / 60); // still on E: must wait
+  assert(l.index === 1 && l.pos === 1, 'did not wait for the next note');
+});
+test('Lessons (learn): finding every note in turn finishes the song', () => {
+  for (const def of SONGS) {
+    const l = new Lesson(buildSong(def), { mode: 'learn', bpm: 80 });
+    const res = runTimed(l, (x) => playAt(x.target.midi + 0.3));
+    assert(l.done && res.hits === res.total && res.stars === 3, `${def.id}: ${res.hits}/${res.total}`);
+  }
+});
+test('Lessons (play): the count-in waits for a hand', () => {
+  const l = new Lesson(song('buns'), { mode: 'play', bpm: 60 });
+  for (let i = 0; i < 300; i++) l.step(noHand, 1 / 60);
+  assert(l.pos === -COUNT_IN_BEATS && !l.view().started, 'started without a hand');
+  l.step(playAt(64), 0.5);
+  assert(l.view().started && l.view().countIn === 4, `count-in shows ${l.view().countIn}`);
+  for (let i = 0; i < 300; i++) l.step(noHand, 1 / 60); // keeps going once started
+  assert(l.pos > 0, 'stopped when the hand left');
+});
+test('Lessons (play): a player on the ribbon gets three stars', () => {
+  for (const tempo of Object.keys(TEMPOS)) {
+    for (const def of SONGS) {
+      const s = buildSong(def);
+      const res = runTimed(new Lesson(s, { mode: 'play', bpm: TEMPOS[tempo].bpm }), (l) => playAt(noteAtBeat(s, l.pos).midi));
+      assert(res.hits === res.total && res.stars === 3, `${def.id} ${tempo}: ${res.hits}/${res.total}`);
+    }
+  }
+});
+test('Lessons (play): arriving a little late still counts', () => {
+  // Camera lag plus travel time: the player is always 150 ms behind the song.
+  const s = song('sheep'), bpm = 80, lagBeats = 0.15 * (bpm / 60);
+  const res = runTimed(new Lesson(s, { mode: 'play', bpm }), (l) => playAt(noteAtBeat(s, l.pos - lagBeats).midi));
+  assert(res.stars === 3, `150 ms late scored ${res.hits}/${res.total}`);
+});
+test('Lessons (play): wrong notes and silence score nothing', () => {
+  const s = song('mary');
+  const wrong = runTimed(new Lesson(s, { mode: 'play', bpm: 100 }), (l) => playAt(noteAtBeat(s, l.pos).midi + 2));
+  assert(wrong.hits === 0 && wrong.stars === 0, `wrong notes scored ${wrong.hits}`);
+  const quiet = new Lesson(s, { mode: 'play', bpm: 100 });
+  quiet.step(playAt(64), 0.01);
+  const res = runTimed(quiet, (l) => ({ pitchPresent: true, sounding: false, midi: noteAtBeat(s, l.pos).midi }));
+  assert(res.hits === 0, `silent playing scored ${res.hits}`);
+  assert(starsFor(0.95) === 3 && starsFor(0.75) === 2 && starsFor(0.5) === 1 && starsFor(0.2) === 0, 'star thresholds');
+});
+test('Lessons (play): holding one note only hits the notes it matches', () => {
+  const s = song('buns'); // seven of its notes are C
+  const res = runTimed(new Lesson(s, { mode: 'play', bpm: 60 }), () => playAt(60));
+  assert(res.hits === 7, `holding C hit ${res.hits} notes, expected 7`);
+});
+test('Lessons: volume dips briefly between notes so repeats sound separate', () => {
+  const s = song('sheep'); // starts C C
+  const l = new Lesson(s, { mode: 'learn', bpm: 60 });
+  let v, dipped = 0;
+  for (let i = 0; i < 70; i++) { v = l.step(playAt(60), 1 / 60); if (v.index === 1 && v.gate === 0) dipped++; }
+  assert(v.index === 1, 'should be on the second C');
+  assert(dipped >= 3 && dipped <= Math.ceil(GATE_SEC * 60) + 1, `dip lasted ${dipped} frames`);
+  assert(v.gate === 1, 'volume should be back');
+});
+test('Lessons: the ribbon shows a few beats ahead in both orientations', () => {
+  for (const [W, H] of [[1180, 720], [844, 390], [390, 844]]) {
+    const L = TH.layoutFor(W, H, { top: 70, bottom: 56 }), g = ribbonGeometry(L);
+    assert(g.ppb >= 40, `${W}x${H}: only ${g.ppb.toFixed(0)} px per beat`);
+    assert(g.look >= 2.5 && g.look <= 4, `${W}x${H}: looks ${g.look.toFixed(1)} beats ahead`);
+    const p = L.pitch;
+    if (L.landscape) assert(g.nowC > p.y && g.nowC < p.y + p.h, 'now-line inside the zone');
+    else assert(g.nowC >= p.x && g.nowC < p.x + p.w, 'now-line inside the zone');
+  }
 });
 
 // ---- render ----

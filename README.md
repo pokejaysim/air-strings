@@ -58,7 +58,7 @@ A second instrument in the same app, played without touching anything:
   scale but keeps slides and vibrato. *Snap* always lands on a note.
 - **Voice:** Classic, Soft or Sci-fi. **Scale:** Pentatonic, Major, Minor
   pentatonic or Chromatic (all in C). **Range:** Low C2–C4, Mid C3–C5, High C4–C6.
-- Keyboard: **A** assist · **V** voice · **S** scale · **R** range · **H** help.
+- Keyboard: **A** assist · **V** voice · **S** scale · **R** range · **L** learn a song · **H** help.
 - On a phone, prop it up and step back so both hands fit. Landscape gives the
   most room.
 
@@ -66,6 +66,26 @@ Feel details: hands are tracked by position (not MediaPipe's left/right label),
 roles are sticky, a volume hand that drops out of frame keeps its level for
 1.5 s, a hand passing through must be seen briefly before it sounds, and a
 hand reaching into the toolbar stops playing.
+
+### Learn a song
+
+Press **Learn** to be taught a tune. Five public-domain songs, easiest first:
+Hot Cross Buns, Mary Had a Little Lamb, Baa Baa Black Sheep, Twinkle Twinkle
+Little Star and Ode to Joy.
+
+1. **Step 1 · Learn.** The song's notes appear as a ribbon of blocks. The song
+   only moves while you are on the right note, so take as long as you need.
+   An arrow and the coach line show which way to move (higher or lower), and
+   the words of the song follow along.
+2. **Step 2 · Play.** After a four-beat count-in the ribbon moves in time.
+   A note counts if you stayed on it for a fair share of its length (there is
+   a short grace period to get there). Hitting 90% of the notes earns three
+   stars, 70% two, 40% one; your best is kept per song.
+
+During a lesson the range is fitted to the song so its notes sit far apart,
+the scale is C major, notes snap, and the volume dips for a moment between
+notes so repeated notes ("Baa, baa") sound separate. **Speed** is Slow (60
+bpm), Medium (80) or Fast (100).
 
 ## Run locally
 
@@ -90,8 +110,8 @@ interaction code as hands, so it's a quick way to test changes.
 Open http://localhost:8000/tests.html. It checks the pitch math (halving
 length raises an octave, clamping, scale snapping, note names), pinch
 hysteresis, video mirroring, simulated hand gestures (drawing, plucking,
-strumming, cooldowns), and the theremin's mapping, assist, roles and
-volume memory. The theremin also has mouse mode: `theremin.html?mouse=1`.
+strumming, cooldowns), the theremin's mapping, assist, roles and
+volume memory, and the song lessons (waiting, timing, scoring). The theremin also has mouse mode: `theremin.html?mouse=1`.
 
 ## How it works
 
@@ -109,6 +129,8 @@ volume memory. The theremin also has mouse mode: `theremin.html?mouse=1`.
 | `js/theremin-map.js` | Theremin logic (pure, tested): layout, hand roles, pitch/volume/tone mapping, Assist, vibrato split, volume memory |
 | `js/theremin-synth.js` | Theremin voice: two oscillators, tone filter, smooth glides, three voices |
 | `js/theremin-main.js` | Theremin page: boot, frame loop, pinch-and-hold controls, drawing |
+| `js/lessons.js` | Song lessons (pure, tested): the songs, the learn and play steps, scoring |
+| `js/lesson-view.js` | Draws the lesson ribbon |
 
 The synth excites a delay line one period long with a burst of filtered noise,
 shaped by where you plucked (plucking near the middle mutes even harmonics), and

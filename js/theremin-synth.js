@@ -129,8 +129,9 @@ export class ThereminSynth extends AudioCore {
    * Call every frame; only schedules audio changes when something changed.
    * @param {object} s { sounding, pitchPresent, freq, level (0..1), tone (0..1) }
    * @param {number} glide time constant (s) for pitch changes
+   * @param {number} release time constant (s) for the level falling
    */
-  update({ sounding, pitchPresent, freq, level, tone = 0.5 }, glide = 0.02) {
+  update({ sounding, pitchPresent, freq, level, tone = 0.5 }, glide = 0.02, release = 0.08) {
     if (!this.ctx || !this.running) return false;
     const t = this.ctx.currentTime;
     const v = VOICES[this.voiceName];
@@ -159,7 +160,7 @@ export class ThereminSynth extends AudioCore {
     }
     if (levelChanged) {
       // Fast-ish attack, slower release so lifting a hand fades out.
-      this.level.gain.setTargetAtTime(target, t, target > this.target ? 0.025 : 0.08);
+      this.level.gain.setTargetAtTime(target, t, target > this.target ? 0.025 : release);
       if (target <= 1e-4 && this.target > 1e-4) this.silentSince = t;
       this.target = target;
     }

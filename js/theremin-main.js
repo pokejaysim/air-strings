@@ -8,6 +8,8 @@ import {
   THEREMIN_SCALES, RANGES, VOLUME_FLOOR,
 } from './theremin-map.js';
 import { midiToFreq, noteName } from './pitch.js';
+import { SONGS, TEMPOS, buildSong, lessonRange, Lesson } from './lessons.js';
+import { drawRibbon } from './lesson-view.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -42,6 +44,17 @@ if (!RANGES[settings.range]) settings.range = 'mid';
 const GLIDE = { off: 0.02, gentle: 0.025, snap: 0.045 };
 const PRESS_DWELL_MS = 140; // pinch must be held on a button this long to press it
 
+// Song lessons (see lessons.js): step 1 "learn" waits for you, step 2 "play" runs in time.
+const lesson = {
+  active: false,
+  songIdx: Math.min(SONGS.length - 1, Math.max(0, parseInt(store.get('theremin.song', '0'), 10) || 0)),
+  mode: 'learn',
+  tempo: store.get('theremin.tempo', 'slow'),
+  song: null, range: null, run: null, view: null,
+  lastT: 0, cardShown: false,
+};
+if (!TEMPOS[lesson.tempo]) lesson.tempo = 'slow';
+
 const app = {
   mouseMode: params.get('mouse') === '1',
   started: false,
@@ -66,7 +79,13 @@ const app = {
 
 // ---------------- Controls ----------------
 const ASSIST_LABEL = { off: 'Off', gentle: 'Gentle', snap: 'Snap' };
-function refreshNotes() { const r = RANGES[settings.range]; app.notes = scaleNotes(settings.scale, r.low, r.high); }
+// What the instrument actually plays with: a lesson fixes the scale and
+// snapping, and fits the range to its song.
+function playSettings() {
+  return lesson.active ? { ...settings, assist: 'snap', scale: 'major', customRange: lesson.range } : settings;
+}
+const currentRange = () => (lesson.active ? lesson.range : RANGES[settings.range]);
+function refreshNotes() { const s = playSettings(), r = currentRange(); app.notes = scaleNotes(s.scale, r.low, r.high); }
 function setAssist(a) { settings.assist = a; store.set('theremin.assist', a); $('assistVal').textContent = ASSIST_LABEL[a]; }
 function setVoice(v) { settings.voice = v; store.set('theremin.voice', v); synth.setVoice(v); $('voiceVal').textContent = VOICES[v].label; }
 function setScale(s) { settings.scale = s; store.set('theremin.scale', s); $('scaleVal').textContent = THEREMIN_SCALES[s].label; refreshNotes(); }
@@ -80,6 +99,91 @@ $('assistBtn').addEventListener('click', cycleAssist);
 $('voiceBtn').addEventListener('click', cycleVoice);
 $('scaleBtn').addEventListener('click', cycleScale);
 $('rangeBtn').addEventListener('click', cycleRange);
+
+// ---------------- Lessons ----------------
+const bestStars = (id) => Math.min(3, Math.max(0, parseInt(store.get('theremin.stars.' + id, '0'), 10) || 0));
+const starText = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
+function refreshLessonLabels() {
+  const def = SONGS[lesson.songIdx], best = bestStars(def.id);
+  $('songKey').innerHTML = `Song ${lesson.songIdx + 1}/${SONGS.length}` + (best ? ` <span class="won">${'★'.repeat(best)}</span>` : '');
+  $('songVal').textContent = def.short || def.title;
+  $('stepVal').textContent = lesson.mode === 'learn' ? '1 · Learn' : '2 · Play';
+  $('speedVal').textContent = TEMPOS[lesson.tempo].label;
+}
+/** (Re)start the current song in the current step. */
+function loadLesson() {
+  lesson.song = buildSong(SONGS[lesson.songIdx]);
+  lesson.range = lessonRange(lesson.song);
+  lesson.run = new Lesson(lesson.song, { mode: lesson.mode, bpm: TEMPOS[lesson.tempo].bpm });
+  lesson.view = lesson.run.view();
+  lesson.lastT = performance.now();
+  lesson.cardShown = false;
+  $('lessonCard').hidden = true;
+  refreshNotes();
+  refreshLessonLabels();
+}
+function introToast() {
+  toast(`Song ${lesson.songIdx + 1}: ${lesson.song.title} — ${lesson.song.teaches}.`, 3600);
+}
+function enterLesson() {
+  lesson.active = true;
+  lesson.mode = 'learn';
+  document.body.classList.add('lesson');
+  $('hint').hidden = true;
+  loadLesson();
+  introToast();
+}
+function exitLesson() {
+  lesson.active = false;
+  document.body.classList.remove('lesson');
+  $('lessonCard').hidden = true;
+  refreshNotes();
+}
+function setLessonSong(i) {
+  lesson.songIdx = (i + SONGS.length) % SONGS.length;
+  store.set('theremin.song', String(lesson.songIdx));
+  lesson.mode = 'learn';
+  loadLesson();
+  introToast();
+}
+function setLessonMode(m) {
+  lesson.mode = m;
+  loadLesson();
+  toast(m === 'learn' ? 'Step 1: find each note. The song waits for you.' : 'Step 2: play in time. Stay on the ribbon as it moves.', 2600);
+}
+function setLessonTempo(t) {
+  lesson.tempo = t; store.set('theremin.tempo', t);
+  loadLesson();
+}
+function finishLesson() {
+  lesson.cardShown = true;
+  const res = lesson.run.result(), def = SONGS[lesson.songIdx];
+  const card = (stars, title, msg, primary, secondary) => {
+    $('lessonStars').innerHTML = stars == null ? '' : '★'.repeat(stars) + `<span class="off">${'★'.repeat(3 - stars)}</span>`;
+    $('lessonTitle').textContent = title;
+    $('lessonMsg').textContent = msg;
+    $('lessonPrimary').textContent = primary[0]; $('lessonPrimary').onclick = primary[1];
+    $('lessonSecondary').textContent = secondary[0]; $('lessonSecondary').onclick = secondary[1];
+    $('lessonCard').hidden = false;
+  };
+  if (lesson.mode === 'learn') {
+    card(null, 'You found every note!', `That was ${def.title}. Now play it in time: the ribbon keeps moving, so stay with it.`,
+      ['Play in time', () => setLessonMode('play')], ['Go again', () => setLessonMode('learn')]);
+    return;
+  }
+  if (res.stars > bestStars(def.id)) store.set('theremin.stars.' + def.id, String(res.stars));
+  refreshLessonLabels();
+  const title = res.hits === res.total ? 'Perfect!' : ['Keep at it', 'Good start', 'Nicely played', 'Excellent!'][res.stars];
+  const msg = `You hit ${res.hits} of ${res.total} notes at ${TEMPOS[lesson.tempo].label.toLowerCase()} speed.`;
+  const again = ['Play again', () => setLessonMode('play')];
+  if (res.stars >= 2) card(res.stars, title, msg, ['Next song', () => setLessonSong(lesson.songIdx + 1)], again);
+  else card(res.stars, title, msg, ['Try again', () => setLessonMode('play')], ['Back to step 1', () => setLessonMode('learn')]);
+}
+$('learnBtn').addEventListener('click', enterLesson);
+$('exitLessonBtn').addEventListener('click', exitLesson);
+$('songBtn').addEventListener('click', () => setLessonSong(lesson.songIdx + 1));
+$('stepBtn').addEventListener('click', () => setLessonMode(lesson.mode === 'learn' ? 'play' : 'learn'));
+$('speedBtn').addEventListener('click', () => setLessonTempo(cycle(Object.keys(TEMPOS), lesson.tempo)));
 for (const b of document.querySelectorAll('.toolbar button, .toolbar a')) {
   b.addEventListener('click', () => { b.classList.remove('pressed'); void b.offsetWidth; b.classList.add('pressed'); });
 }
@@ -90,12 +194,14 @@ $('soundBanner').addEventListener('click', () => synth.unlock());
 window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT') return;
   const k = e.key.toLowerCase();
-  if (k === 'a') cycleAssist();
+  if (k === 'l') lesson.active ? exitLesson() : enterLesson();
+  else if (lesson.active && 'avsr'.includes(k)) return; // free-play controls are parked during a lesson
+  else if (k === 'a') cycleAssist();
   else if (k === 'v') cycleVoice();
   else if (k === 's') cycleScale();
   else if (k === 'r') cycleRange();
   else if (k === 'h' || k === '?') $('hint').hidden = !$('hint').hidden;
-  else if (k === 'escape') $('hint').hidden = true;
+  else if (k === 'escape') { if (!$('hint').hidden) $('hint').hidden = true; else if (lesson.active) exitLesson(); }
   else return;
   e.preventDefault();
 });
@@ -124,6 +230,7 @@ function setCoach(c) {
   $('coach').hidden = !c;
   if (!c) return;
   $('coachStep').textContent = c.step; $('coachText').textContent = c.text;
+  if (c.quiet) return; // lesson text changes with every note: don't re-animate
   const el = $('coach'); el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
 }
 let soundPaused = null;
@@ -260,11 +367,26 @@ function frame(now) {
   }
   for (const p of ptrs) points.push({ id: p.id, x: p.x, y: p.y, source: 'mouse' });
 
-  const r = state.step(points, L, settings, now);
+  const eff = playSettings();
+  app.eff = eff;
+  const r = state.step(points, L, eff, now);
   app.reading = r;
   app.roles = r.roles;
+
+  // Lesson: move the song along, and dip the volume for a moment between
+  // notes so repeated notes sound like separate notes.
+  let gate = 1;
+  if (lesson.active && lesson.run) {
+    const dt = Math.min(0.1, Math.max(0, (now - lesson.lastT) / 1000));
+    lesson.lastT = now;
+    lesson.view = lesson.run.step(r, dt);
+    gate = lesson.view.gate;
+    if (lesson.view.done && !lesson.cardShown) finishLesson();
+  }
   const handGlide = app.cameraOn && !app.mouseMode ? (app.detectInterval / 1000) * 0.6 : 0;
-  synth.update(r, Math.max(GLIDE[settings.assist], handGlide));
+  const glide = Math.max(GLIDE[eff.assist], handGlide);
+  if (gate < 1) synth.update({ ...r, level: r.level * gate }, glide, 0.02);
+  else synth.update(r, glide);
 
   if (r.sounding) {
     app.everPlayed = true;
@@ -281,7 +403,7 @@ function frame(now) {
   if (app.trail.length > 60) app.trail.splice(0, app.trail.length - 60);
 
   setSoundPaused(app.started && synth.needsUnlock);
-  setCoach(coach());
+  setCoach(lesson.active ? lessonCoach() : coach());
   render();
   requestAnimationFrame(frame);
 }
@@ -299,7 +421,7 @@ function handlePinchPresses(handPtrs, now) {
     if (!p.pinching) { app.presses.delete(p.id); continue; }
     const el = document.elementFromPoint(p.x, p.y);
     const btn = el && el.closest('button:not([disabled])');
-    const ok = btn && btn.closest('.toolbar, .hint, .banner');
+    const ok = btn && btn.closest('.toolbar, .hint, .banner, .lesson-card');
     let pr = app.presses.get(p.id);
     if (p.pinchStarted || !pr) { pr = { btn: ok ? btn : null, t0: now, done: false }; app.presses.set(p.id, pr); }
     if (!ok || btn !== pr.btn) { pr.btn = null; continue; } // drifted off: no press
@@ -329,6 +451,24 @@ function coach() {
   return null;
 }
 
+/** Coaching for a lesson: the words being sung, and where to move next. */
+function lessonCoach() {
+  const v = lesson.view;
+  if (!app.started || !$('hint').hidden || !v || v.done || !v.target) return null;
+  const words = lesson.song.phrases[v.target.phrase];
+  const r = app.reading || {};
+  const n = v.target.name;
+  const land = app.layout.landscape;
+  let tip = '';
+  if (!r.pitchPresent) tip = app.mouseMode ? 'press on the right side to begin' : 'hold a hand up on the right to begin';
+  else if (!r.sounding) tip = 'raise your volume hand to hear it';
+  else if (v.mode === 'play') tip = v.countIn ? `get ready on ${n}` : '';
+  else if (v.onPitch) tip = `that’s ${n}, hold it`;
+  else if (v.direction > 0) tip = `find ${n}: move ${land ? 'right →' : 'up ↑'} (higher)`;
+  else if (v.direction < 0) tip = `find ${n}: move ${land ? 'left ←' : 'down ↓'} (lower)`;
+  return { step: v.index + 1, text: tip ? `${words} · ${tip}` : words, quiet: true };
+}
+
 // ---------------- Render ----------------
 const hueFor = (midi, range) => 200 - 170 * Math.min(1, Math.max(0, (midi - range.low) / (range.high - range.low)));
 
@@ -338,11 +478,12 @@ function render() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   if (!app.started) return;
-  const r = app.reading || { range: RANGES[settings.range] };
+  const r = app.reading || { range: currentRange() };
 
   drawWaveform(r);   // background layer
   drawZones(L, r);
   drawGuides(L, r);
+  if (lesson.active && lesson.view) drawRibbon(ctx, L, lesson.range, lesson.song, lesson.view, r, hueFor);
   drawTrail();
   drawHands(L, r);
 }
@@ -390,7 +531,8 @@ function drawZones(L, r) {
 }
 
 function drawGuides(L, r) {
-  const range = RANGES[settings.range];
+  const range = currentRange();
+  const eff = playSettings();
   const p = L.pitch;
   ctx.save();
   ctx.font = '600 11px ui-rounded, system-ui, sans-serif';
@@ -402,14 +544,14 @@ function drawGuides(L, r) {
     const name = noteName(midiToFreq(n));
     const isC = n % 12 === 0;
     const sharp = name.includes('#');
-    const active = cur === n && (settings.assist !== 'off' || Math.abs(r.midi - n) < 0.15);
+    const active = cur === n && (eff.assist !== 'off' || Math.abs(r.midi - n) < 0.15);
     ctx.strokeStyle = active ? `hsla(${hueFor(n, range)}, 95%, 70%, 0.9)` : `rgba(255,255,255,${isC ? 0.22 : sharp ? 0.06 : 0.11})`;
     ctx.lineWidth = active ? 2 : 1;
     ctx.beginPath();
     if (L.axis === 'x') { ctx.moveTo(c, p.y + 28); ctx.lineTo(c, p.y + p.h - 20); }
     else { ctx.moveTo(p.x, c); ctx.lineTo(p.x + p.w - 34, c); }
     ctx.stroke();
-    if (!sharp || settings.scale !== 'chromatic') {
+    if (!sharp || eff.scale !== 'chromatic') {
       // Labels on a dark pill so the waveform behind never hides them.
       const lx = L.axis === 'x' ? c : p.x + p.w - 18;
       const ly = L.axis === 'x' ? p.y + p.h - 10 : c;
@@ -494,7 +636,7 @@ function drawHands(L, r) {
     glowStroke(`hsla(${hue}, 95%, 72%, 0.9)`, `hsla(${hue}, 95%, 60%, 0.15)`, 3);
     ctx.beginPath(); ctx.arc(pitch.x, pitch.y, 18, 0, Math.PI * 2);
     glowStroke(`hsla(${hue}, 95%, 72%, 0.9)`, `hsla(${hue}, 95%, 60%, 0.12)`, 2.5);
-    const cents = settings.assist === 'off' && r.cents ? ` ${r.cents > 0 ? '+' : ''}${r.cents}¢` : '';
+    const cents = playSettings().assist === 'off' && r.cents ? ` ${r.cents > 0 ? '+' : ''}${r.cents}¢` : '';
     label(r.note + cents, pitch.x, pitch.y - 36, `hsl(${hue}, 100%, 88%)`, 16);
   }
   ctx.restore();
@@ -515,4 +657,7 @@ function label(text, x, y, color, size = 13) {
 }
 
 // Debug handle (used for automated checks; harmless otherwise).
-window.theremin = { app, synth, settings, tracker, state, start, setAssist, setVoice, setScale, setRange };
+window.theremin = {
+  app, synth, settings, tracker, state, start, setAssist, setVoice, setScale, setRange,
+  lesson, enterLesson, exitLesson, setLessonSong, setLessonMode, setLessonTempo,
+};

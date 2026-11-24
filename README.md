@@ -56,6 +56,12 @@ same five songs as the theremin, easiest first).
    are shown under the toolbar, and the song waits for you. Stars are for
    accuracy: wrong strings count as slips, though brushing a neighbour right
    after a correct pluck is forgiven.
+3. **Step 3 · In time.** After a four-beat count-in (it waits for your hand),
+   notes travel along each string to a line across the harp: pluck as each one
+   touches it. Within 0.12 s is *perfect*, within 0.3 s is *good*. Stray
+   plucks cost half a note, so strumming everything doesn't win. Speeds are
+   Slow 50, Medium 66 and Fast 84 bpm, a little slower than the theremin's
+   because a pluck takes longer than a slide.
 
 The harp has six strings, C4 to A4, and is kept between songs, so each song
 only asks for the strings you don't have yet (Hot Cross Buns needs C, D, E;

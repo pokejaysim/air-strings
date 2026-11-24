@@ -2,7 +2,7 @@
 // string-lessons.js (pure, tested); this file connects them to the page.
 
 import { SONGS, buildSong } from './lessons.js';
-import { harpSlots, matchSlot, drawFeedback, whiteNoteForLength, StringSongRun } from './string-lessons.js';
+import { harpSlots, matchSlot, drawFeedback, whiteNoteForLength, StringSongRun, StringTimedRun, STRING_TEMPOS, timedGeometry } from './string-lessons.js';
 import { lengthFraction, midiToFreq, noteName } from './pitch.js';
 import { roundRect } from './strings.js';
 
@@ -17,7 +17,9 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   const L = {
     active: false,
     songIdx: Math.min(SONGS.length - 1, Math.max(0, parseInt(store.get('strings.song', '0'), 10) || 0)),
-    step: 'build',          // 'build' | 'play'
+    step: 'build',          // 'build' | 'play' | 'time'
+    tempo: STRING_TEMPOS[store.get('strings.tempo', 'slow')] ? store.get('strings.tempo', 'slow') : 'slow',
+    lastBeat: null,         // for the count-in ticks
     song: null,
     run: null,
     harp: new Map(),        // midi -> AirString; kept between songs, so each song adds to it
@@ -37,13 +39,27 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   const needed = () => [...new Set(L.song.notes.map((n) => n.midi))].sort((a, b) => a - b);
   const missing = () => needed().filter((m) => !L.harp.has(m));
   const missingSlots = () => missing().map(slotFor).filter(Boolean);
-  const bestStars = (id) => Math.min(3, Math.max(0, parseInt(store.get('strings.stars.' + id, '0'), 10) || 0));
+  const readStars = (key) => Math.min(3, Math.max(0, parseInt(store.get(key, '0'), 10) || 0));
+  const paceStars = (id) => readStars('strings.stars.' + id);
+  const timeStars = (id) => readStars('strings.time.' + id);
+  const bestStars = (id) => Math.max(paceStars(id), timeStars(id));
+  const STEP_LABEL = { build: '1 · Build', play: '2 · Play', time: '3 · In time' };
 
+  const shortTimed = () => L.step === 'time' && app.W >= app.H && app.H < 500;
   function computeSlots() {
     const tb = $('toolbar').getBoundingClientRect();
     const wide = app.W >= app.H;
     // Leave room for the "next notes" strip under the toolbar and the coach at the bottom.
-    L.slots = harpSlots(app.W, app.H, { top: tb.bottom + (wide ? 58 : 86), bottom: wide ? 124 : 176 });
+    const top = tb.bottom + (wide ? 58 : 86);
+    // A short screen playing in time gives the coach's room to the strings.
+    const bottom = wide ? (shortTimed() ? 30 : 124) : 176;
+    L.slots = harpSlots(app.W, app.H, { top, bottom });
+    if (wide && L.step === 'time') {
+      // Playing in time, notes fall onto the strings from above: if there's
+      // room, lower the harp so they can be seen coming from further away.
+      const slack = app.H - bottom - Math.max(...L.slots.map((sl) => sl.by));
+      if (slack > 20) L.slots = harpSlots(app.W, app.H, { top: top + Math.min(slack, app.H * 0.22), bottom });
+    }
   }
   /** Put every harp string on its slot (after a resize, or when coming back to lessons). */
   function placeHarp() {
@@ -65,14 +81,20 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     const def = SONGS[L.songIdx], best = bestStars(def.id);
     $('songKey').innerHTML = `Song ${L.songIdx + 1}/${SONGS.length}` + (best ? ` <span class="won">${'★'.repeat(best)}</span>` : '');
     $('songVal').textContent = def.short || def.title;
-    $('stepVal').textContent = L.step === 'build' ? '1 · Build' : '2 · Play';
+    $('stepVal').textContent = STEP_LABEL[L.step];
+    $('speedVal').textContent = STRING_TEMPOS[L.tempo].label;
+    document.body.classList.toggle('lesson-time', L.active && L.step === 'time');
   }
 
   // ---------- flow ----------
   function setStep(step) {
     L.step = step;
     interaction.allowDraw = step === 'build';
-    L.run = step === 'play' ? new StringSongRun(L.song) : null;
+    L.run = step === 'play' ? new StringSongRun(L.song)
+      : step === 'time' ? new StringTimedRun(L.song, { bpm: STRING_TEMPOS[L.tempo].bpm }) : null;
+    L.lastBeat = null;
+    computeSlots();
+    placeHarp();
     L.cardShown = false;
     $('lessonCard').hidden = true;
     refreshLabels();
@@ -107,7 +129,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   function exit() {
     if (!L.active) return;
     L.active = false;
-    document.body.classList.remove('lesson');
+    document.body.classList.remove('lesson', 'lesson-time');
     $('lessonCard').hidden = true;
     $('toast').classList.remove('show'); // a lesson message shouldn't linger over free play
     interaction.reset();
@@ -128,13 +150,15 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     store.set('strings.song', String(L.songIdx));
     loadSong();
   }
-  /** The Step button: from building, finish the harp for them; from playing, start the harp over. */
+  /** The Step button: build -> play at your own pace -> play in time -> start the harp over. */
   function toggleStep() {
     if (L.step === 'build') {
       const miss = missing();
       for (const m of miss) addString(m, false);
       setStep('play');
       ui.toast(miss.length ? 'Built the rest for you. Pluck the glowing string.' : 'Pluck the glowing string.', 2600);
+    } else if (L.step === 'play') {
+      startTimed();
     } else {
       interaction.reset();
       bank.strings = [];
@@ -142,6 +166,20 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       setStep('build');
       ui.toast('Harp cleared. Draw the strings again.', 2400);
     }
+  }
+
+  function startTimed() {
+    setStep('time');
+    ui.toast(`In time at ${STRING_TEMPOS[L.tempo].label.toLowerCase()} speed: pluck each string as its note reaches the line.`, 3200);
+  }
+  function setTempo(t) {
+    L.tempo = STRING_TEMPOS[t] ? t : 'slow';
+    store.set('strings.tempo', L.tempo);
+    if (L.step === 'time') setStep('time'); else refreshLabels();
+  }
+  function cycleTempo() {
+    const keys = Object.keys(STRING_TEMPOS);
+    setTempo(keys[(keys.indexOf(L.tempo) + 1) % keys.length]);
   }
 
   /** A finished draw during the build step: it either fills a slot or is thrown away. */
@@ -183,14 +221,30 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   function finish() {
     L.cardShown = true;
     const res = L.run.result(), def = SONGS[L.songIdx];
-    if (res.stars > bestStars(def.id)) store.set('strings.stars.' + def.id, String(res.stars));
+    const timed = L.step === 'time';
+    const key = (timed ? 'strings.time.' : 'strings.stars.') + def.id;
+    if (res.stars > readStars(key)) store.set(key, String(res.stars));
     refreshLabels();
     $('lessonStars').innerHTML = '★'.repeat(res.stars) + `<span class="off">${'★'.repeat(3 - res.stars)}</span>`;
-    $('lessonTitle').textContent = res.wrong === 0 ? 'Perfect!' : ['Keep at it', 'Good start', 'Nicely played', 'Excellent!'][res.stars];
-    $('lessonMsg').textContent = `You played ${def.title}: ${res.total} notes with ${res.wrong === 0 ? 'no slips' : res.wrong === 1 ? '1 slip' : res.wrong + ' slips'}.`;
-    const again = ['Play again', () => setStep('play')];
+    const slips = res.wrong === 0 ? 'no slips' : res.wrong === 1 ? '1 slip' : res.wrong + ' slips';
     const next = ['Next song', () => setSong(L.songIdx + 1)];
-    const [primary, secondary] = res.stars >= 2 ? [next, again] : [again, next];
+    let primary, secondary;
+    if (timed) {
+      const flawless = res.perfect + res.good === res.total && res.wrong === 0;
+      $('lessonTitle').textContent = flawless && res.perfect === res.total ? 'Perfect timing!' : ['Keep at it', 'Good start', 'Nicely played', 'Excellent!'][res.stars];
+      $('lessonMsg').textContent = `${def.title} at ${STRING_TEMPOS[L.tempo].label.toLowerCase()} speed: ${res.hits} of ${res.total} notes in time (${res.perfect} perfect), ${slips}. Best streak ${res.maxCombo}.`;
+      const again = ['Play again', () => setStep('time')];
+      const slower = L.tempo !== 'slow' ? ['Slower', () => setTempo(Object.keys(STRING_TEMPOS)[Object.keys(STRING_TEMPOS).indexOf(L.tempo) - 1])]
+        : ['Practise at my pace', () => setStep('play')];
+      const faster = L.tempo !== 'fast' ? ['Faster', () => setTempo(Object.keys(STRING_TEMPOS)[Object.keys(STRING_TEMPOS).indexOf(L.tempo) + 1])] : again;
+      [primary, secondary] = res.stars === 3 ? [next, faster] : res.stars === 2 ? [next, again] : [again, slower];
+    } else {
+      $('lessonTitle').textContent = res.wrong === 0 ? 'Perfect!' : ['Keep at it', 'Good start', 'Nicely played', 'Excellent!'][res.stars];
+      $('lessonMsg').textContent = `You played ${def.title}: ${res.total} notes with ${slips}.` + (res.stars >= 2 ? ' Now try it in time?' : '');
+      const again = ['Play again', () => setStep('play')];
+      const inTime = ['Play in time', startTimed];
+      [primary, secondary] = res.stars >= 2 ? [inTime, next] : [again, inTime];
+    }
     $('lessonPrimary').textContent = primary[0]; $('lessonPrimary').onclick = primary[1];
     $('lessonSecondary').textContent = secondary[0]; $('lessonSecondary').onclick = secondary[1];
     $('lessonCard').hidden = false;
@@ -198,11 +252,16 @@ export function createStringLessons({ app, bank, interaction, ui }) {
 
   /** Called for every interaction event (plucks, strums, ...). */
   function onEvent(ev) {
-    if (!L.active || L.step !== 'play' || !L.run || L.run.done) return;
+    if (!L.active || L.step === 'build' || !L.run || L.run.done) return;
     if (ev.type !== 'pluck' && ev.type !== 'strum') return;
     const midi = ev.string.fixedMidi;
-    const want = L.run.target;
     const now = performance.now();
+    if (L.step === 'time') {
+      L.run.pluck(midi, now);
+      if (L.run.done) finish();
+      return;
+    }
+    const want = L.run.target;
     const res = L.run.pluck(midi, now);
     if (res === 'wrong' && now - L.lastHintT > 2500) {
       L.lastHintT = now;
@@ -213,9 +272,35 @@ export function createStringLessons({ app, bank, interaction, ui }) {
 
   // ---------- per-frame ----------
   function frame() {
-    if (!L.active || L.step !== 'play' || !L.run || L.run.done) return;
-    const s = L.harp.get(L.run.target.midi);
-    if (s) s.hover = 1; // keep the string to pluck lit
+    if (!L.active || !L.run || L.run.done || L.step === 'build') return;
+    if (L.step === 'play') {
+      const s = L.harp.get(L.run.target.midi);
+      if (s) s.hover = 1; // keep the string to pluck lit
+      return;
+    }
+    const now = performance.now();
+    const run = L.run;
+    if (!run.started) {
+      // Wait for a hand (or the mouse) before counting in, and not under a card or help.
+      const ready = app.mouseMode || app.pointers.some((p) => p.source === 'hand' && !p.lost);
+      if (ready && !L.cardShown && !ui.hintOpen) run.start(now);
+      else return;
+    }
+    // Count-in ticks, and a softer tick on each beat after.
+    const beat = Math.floor(run.pos(now));
+    if (beat !== L.lastBeat) {
+      L.lastBeat = beat;
+      if (beat < 0) interaction.synth.pluck({ freq: beat === -run.countIn ? 1760 : 1318.5, amp: 0.22, position: 0.1, pan: 0, stringId: 'tick' });
+    }
+    run.update(now);
+    // Light each string a moment before its note arrives.
+    const pos = run.pos(now);
+    for (let i = run.index; i < L.song.notes.length; i++) {
+      const n = L.song.notes[i];
+      if (n.start - pos > 0.6) break;
+      if (run.grade[i] === null) { const s = L.harp.get(n.midi); if (s) s.hover = 1; }
+    }
+    if (run.done) finish();
   }
 
   function coach() {
@@ -236,6 +321,16 @@ export function createStringLessons({ app, bank, interaction, ui }) {
         ? `Draw the ${name} string: pinch the glowing dot, hold, stretch to the ring, let go.`
         : `Draw the ${name} string: drag from the glowing dot to the ring.`;
       return { step: built + 1, text: how + why, quiet: true };
+    }
+    if (L.step === 'time') {
+      const run = L.run;
+      if (!run || run.done) return null;
+      if (shortTimed() && run.started) return null;
+      if (!run.started) return { step: '3', text: hand ? 'Hold a hand up to start the count-in.' : 'Get ready…', quiet: true };
+      const pos = run.pos(performance.now());
+      if (pos < 0) return { step: '3', text: 'Pluck each string as its note touches the line.', quiet: true };
+      const t = run.target;
+      return t ? { step: run.index + 1, text: L.song.phrases[t.phrase], quiet: true } : null;
     }
     const t = L.run && L.run.target;
     if (!t) return null;
@@ -286,7 +381,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
         ctx.font = '700 13px ui-rounded, system-ui, sans-serif';
         ctx.textAlign = 'center';
       });
-    } else if (L.run && !L.run.done) {
+    } else if (L.step === 'play' && L.run && !L.run.done) {
       const s = L.harp.get(L.run.target.midi);
       if (s) {
         ctx.strokeStyle = `rgba(125,255,176,${0.14 + 0.14 * pulse})`;
@@ -298,7 +393,8 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   }
 
   /** Over everything: the next few notes of the song, under the toolbar. */
-  function drawOver(ctx) {
+  function drawOver(ctx, now) {
+    if (L.active && L.step === 'time' && L.run) { drawTimed(ctx, now ?? performance.now()); return; }
     if (!L.active || L.step !== 'play' || !L.run || L.run.done) return;
     const notes = L.song.notes.slice(L.run.index, L.run.index + 6);
     const tb = $('toolbar').getBoundingClientRect();
@@ -324,6 +420,108 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     ctx.restore();
   }
 
+  /** Playing in time: notes travel along each string to the now-line. */
+  function drawTimed(ctx, now) {
+    const run = L.run, song = L.song;
+    const slots = L.slots.filter((s) => L.harp.has(s.midi));
+    if (!slots.length) return;
+    const tb = $('toolbar').getBoundingClientRect();
+    const g = timedGeometry(L.slots, app.W, app.H, { farTop: tb.bottom + 10 });
+    const pos = run.pos(now);
+    const at = (slot, c) => (g.wide ? [slot.ax, c] : [c, slot.ay]);
+    const cOf = (beat) => g.now + g.dir * (beat - pos) * g.ppb;
+    ctx.save();
+    ctx.lineCap = 'round';
+    // The now-line across every string, with a ring where each string crosses it.
+    const first = slots[0], last = slots[slots.length - 1];
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (g.wide) { ctx.moveTo(Math.min(first.ax, last.ax) - 34, g.now); ctx.lineTo(Math.max(first.ax, last.ax) + 34, g.now); }
+    else { ctx.moveTo(g.now, Math.max(first.ay, last.ay) + 30); ctx.lineTo(g.now, Math.min(first.ay, last.ay) - 30); }
+    ctx.stroke();
+    for (const sl of slots) {
+      const s = L.harp.get(sl.midi), [x, y] = at(sl, g.now);
+      ctx.beginPath(); ctx.arc(x, y, 15, 0, Math.PI * 2);
+      ctx.strokeStyle = `hsla(${s.hue}, 95%, 70%, ${0.45 + 0.5 * s.hover})`;
+      ctx.lineWidth = 2 + 2 * s.hover;
+      ctx.stroke();
+    }
+    // Notes: clipped so they appear from under the toolbar edge, not over it.
+    ctx.save();
+    ctx.beginPath();
+    if (g.wide) ctx.rect(0, g.far, app.W, app.H - g.far); else ctx.rect(0, 0, g.far, app.H);
+    ctx.clip();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '800 13px ui-rounded, system-ui, sans-serif';
+    for (let i = 0; i < song.notes.length; i++) {
+      const n = song.notes[i];
+      if (n.start > pos + g.look + 0.5) break;
+      const grade = run.grade[i];
+      if (grade === 'perfect' || grade === 'good') continue; // burst away when played
+      const sl = slotFor(n.midi), s = L.harp.get(n.midi);
+      if (!sl || !s) continue;
+      const head = cOf(n.start), tail = cOf(n.start + n.beats);
+      const past = grade === 'miss';
+      const fade = past ? Math.max(0, 1 - (pos - n.start) / 1.2) : 1;
+      if (fade <= 0) continue;
+      const len = Math.max(0, Math.abs(tail - head) - 8);
+      const [hx, hy] = at(sl, head);
+      ctx.globalAlpha = fade;
+      // Tail: how long the note lasts.
+      if (len > 14) {
+        const [tx, ty] = at(sl, head + g.dir * len);
+        ctx.strokeStyle = `hsla(${s.hue}, 90%, 62%, ${past ? 0.25 : 0.4})`;
+        ctx.lineWidth = 12;
+        ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+      }
+      // Head: the moment to pluck.
+      ctx.beginPath(); ctx.arc(hx, hy, 13, 0, Math.PI * 2);
+      ctx.fillStyle = past ? 'rgba(120,120,130,0.7)' : `hsl(${s.hue}, 95%, 66%)`;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = 'rgba(8,10,18,0.9)';
+      ctx.fillText(n.name, hx, hy + 0.5);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+    // How each note went, floating up from where it was judged.
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const ev of run.events) {
+      const age = (now - ev.t) / 700;
+      if (age > 1) continue;
+      const sl = slotFor(song.notes[ev.i].midi);
+      if (!sl) continue;
+      const [x, y] = at(sl, g.now);
+      const label = { perfect: 'Perfect', good: 'Good', miss: 'Miss' }[ev.grade];
+      ctx.globalAlpha = 1 - age;
+      ctx.font = '800 14px ui-rounded, system-ui, sans-serif';
+      ctx.fillStyle = ev.grade === 'perfect' ? '#7dffb0' : ev.grade === 'good' ? '#cfe9ff' : '#ff8a96';
+      const lift = 22 + 26 * age;
+      ctx.fillText(label, g.wide ? x : x, g.wide ? y + lift : y - lift);
+      if (ev.grade !== 'miss') {
+        ctx.beginPath(); ctx.arc(x, y, 15 + 30 * age, 0, Math.PI * 2);
+        ctx.strokeStyle = ev.grade === 'perfect' ? '#7dffb0' : '#cfe9ff';
+        ctx.lineWidth = 3 * (1 - age); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    // Count-in.
+    if (run.started && pos < 0 && !run.done) {
+      ctx.font = '800 84px ui-rounded, system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.fillText(String(Math.ceil(-pos)), app.W / 2, app.H * 0.42);
+    }
+    // Progress along the top.
+    const done = run.done ? 1 : run.index / song.notes.length;
+    const bw = Math.min(360, app.W - 48), bx = (app.W - bw) / 2, by = tb.bottom + 6;
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(bx, by, bw, 3);
+    ctx.fillStyle = 'rgba(125,255,176,0.8)'; ctx.fillRect(bx, by, bw * done, 3);
+    ctx.restore();
+  }
+
   function resize() {
     if (!L.active) return;
     computeSlots();
@@ -335,6 +533,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   $('exitLessonBtn').addEventListener('click', exit);
   $('songBtn').addEventListener('click', () => setSong(L.songIdx + 1));
   $('stepBtn').addEventListener('click', toggleStep);
+  $('speedBtn').addEventListener('click', cycleTempo);
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT' || !app.started) return;
     const k = e.key.toLowerCase();
@@ -347,6 +546,6 @@ export function createStringLessons({ app, bank, interaction, ui }) {
   return {
     state: L,
     get active() { return L.active; },
-    enter, exit, setSong, setStep, toggleStep, onEvent, frame, coach, drawUnder, drawOver, resize,
+    enter, exit, setSong, setStep, setTempo, startTimed, toggleStep, onEvent, frame, coach, drawUnder, drawOver, resize,
   };
 }

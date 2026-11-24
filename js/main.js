@@ -209,7 +209,7 @@ function render(pointers, now) {
   lessons.drawUnder(ctx, now);
   bank.draw(ctx);
   for (const p of interaction.previews) drawPreview(p);
-  lessons.drawOver(ctx);
+  lessons.drawOver(ctx, now);
   for (const p of pointers) drawPointer(p);
 }
 

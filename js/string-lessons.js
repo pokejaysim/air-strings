@@ -117,3 +117,124 @@ export class StringSongRun {
     return { total, wrong: this.wrong, accuracy, stars: this.done ? starsFor(accuracy) : 0 };
   }
 }
+
+/** Speeds for playing strings in time. Slower than the theremin's: a pluck takes longer than a slide. */
+export const STRING_TEMPOS = {
+  slow: { label: 'Slow', bpm: 50 },
+  medium: { label: 'Medium', bpm: 66 },
+  fast: { label: 'Fast', bpm: 84 },
+};
+export const TIMED_COUNT_IN = 4;  // beats before the first note
+export const PERFECT_SEC = 0.12;  // this close to the beat is "perfect"
+export const WINDOW_SEC = 0.3;    // this close still counts ("good")
+
+/**
+ * Playing a song in time: notes arrive on the beat whether or not you're
+ * ready, and each pluck is judged by how close it lands to a note's start.
+ * Times are in ms from performance.now(); the run starts when start() is called.
+ */
+export class StringTimedRun {
+  constructor(song, { bpm = 50, countIn = TIMED_COUNT_IN } = {}) {
+    this.song = song;
+    this.bpm = bpm;
+    this.countIn = countIn;
+    this.beatMs = 60000 / bpm;
+    this.t0 = null;            // ms when the count-in started
+    this.grade = song.notes.map(() => null); // 'perfect' | 'good' | 'miss'
+    this.wrong = 0;
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.done = false;
+    this.lastRightT = -Infinity;
+    this.events = [];          // recent judgements, for drawing: {i, grade, t}
+  }
+
+  get started() { return this.t0 != null; }
+  start(nowMs) { if (this.t0 == null) this.t0 = nowMs; }
+
+  /** Song position in beats (negative during the count-in). */
+  pos(nowMs) { return this.t0 == null ? -this.countIn : (nowMs - this.t0) / this.beatMs - this.countIn; }
+  /** When note i should be played, in ms. */
+  timeOf(i) { return this.t0 + (this.countIn + this.song.notes[i].start) * this.beatMs; }
+  /** The first note not yet judged (the one to play next). */
+  get index() { const i = this.grade.indexOf(null); return i < 0 ? this.song.notes.length : i; }
+  get target() { return this.done ? null : this.song.notes[this.index] || null; }
+
+  _judge(i, grade, nowMs) {
+    this.grade[i] = grade;
+    this.events.push({ i, grade, t: nowMs });
+    if (this.events.length > 12) this.events.shift();
+    if (grade === 'miss') this.combo = 0;
+    else { this.combo++; this.maxCombo = Math.max(this.maxCombo, this.combo); }
+    if (!this.grade.includes(null)) this.done = true;
+  }
+
+  /** Mark notes whose window has passed as missed. Call every frame. */
+  update(nowMs) {
+    if (this.t0 == null || this.done) return;
+    for (let i = 0; i < this.song.notes.length; i++) {
+      if (this.grade[i] !== null) continue;
+      if (nowMs - this.timeOf(i) > WINDOW_SEC * 1000) this._judge(i, 'miss', nowMs);
+      else break; // notes are in time order
+    }
+  }
+
+  /** A string sounded. Returns 'perfect' | 'good' | 'wrong' | 'ignored'. */
+  pluck(midi, nowMs) {
+    if (this.t0 == null || this.done) return 'ignored';
+    this.update(nowMs);
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < this.song.notes.length; i++) {
+      if (this.grade[i] !== null || this.song.notes[i].midi !== midi) continue;
+      const d = Math.abs(nowMs - this.timeOf(i));
+      if (d > WINDOW_SEC * 1000) { if (this.timeOf(i) > nowMs) break; continue; }
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best >= 0) {
+      // Any earlier note still waiting was skipped over: it's a miss.
+      for (let i = 0; i < best; i++) if (this.grade[i] === null) this._judge(i, 'miss', nowMs);
+      const g = bestD <= PERFECT_SEC * 1000 ? 'perfect' : 'good';
+      this._judge(best, g, nowMs);
+      this.lastRightT = nowMs;
+      return g;
+    }
+    if (nowMs - this.lastRightT < STRUM_GRACE_MS) return 'ignored'; // brushed a neighbour
+    this.wrong++;
+    this.combo = 0;
+    return 'wrong';
+  }
+
+  result() {
+    const total = this.song.notes.length;
+    const perfect = this.grade.filter((g) => g === 'perfect').length;
+    const good = this.grade.filter((g) => g === 'good').length;
+    const hits = perfect + good;
+    // Good counts a bit less than perfect; stray plucks cost half a note each,
+    // so strumming everything all the time doesn't win.
+    const score = total ? (perfect + 0.8 * good) / (total + 0.5 * this.wrong) : 0;
+    return { total, hits, perfect, good, wrong: this.wrong, maxCombo: this.maxCombo, ratio: score, stars: this.done ? starsFor(score) : 0 };
+  }
+}
+
+/**
+ * Where notes travel when playing in time. Wide screens: notes fall straight
+ * down each upright string to a now-line across them. Tall screens: notes
+ * slide in from the right along each flat string to an upright now-line.
+ * `far` is where notes appear (the toolbar edge on wide screens), `now` is
+ * where they should be plucked; both are y (wide) or x (tall).
+ */
+export function timedGeometry(slots, W, H, { farTop = 70 } = {}) {
+  const wide = W >= H;
+  const shortest = Math.min(...slots.map((s) => s.len));
+  let now, far;
+  if (wide) {
+    now = slots[0].ay + shortest * 0.85;
+    far = Math.min(farTop, slots[0].ay - 10);
+  } else {
+    now = slots[0].ax + shortest * 0.55;
+    far = W - 14;
+  }
+  const dist = Math.abs(now - far);
+  const look = Math.min(4, Math.max(2, dist / 52)); // beats visible ahead
+  return { wide, now, far, look, ppb: dist / look, dir: wide ? -1 : 1 };
+}

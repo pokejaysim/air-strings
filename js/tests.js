@@ -8,7 +8,7 @@ import { HandGestures, videoToScreen, PINCH_ON, PINCH_OFF } from './gestures.js'
 import * as TH from './theremin-map.js';
 import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GATE_SEC, COUNT_IN_BEATS } from './lessons.js';
 import { ribbonGeometry } from './lesson-view.js';
-import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun } from './string-lessons.js';
+import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun, StringTimedRun, timedGeometry, STRING_TEMPOS, PERFECT_SEC, WINDOW_SEC } from './string-lessons.js';
 
 const results = [];
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
@@ -714,6 +714,63 @@ test('String lessons (play): one strum across E, D, C plays three notes', () => 
   let t = 0;
   while (!clean.done) clean.pluck(clean.target.midi, (t += 300));
   assert(clean.result().stars === 3, 'a clean run earns three stars');
+});
+test('String lessons (in time): nothing moves until the run starts, then a 4-beat count-in', () => {
+  const run = new StringTimedRun(song('buns'), { bpm: 60 });
+  assert(!run.started && run.pluck(64, 0) === 'ignored', 'plucks before the start are ignored');
+  run.start(1000);
+  assert(near(run.pos(1000), -4) && near(run.pos(5000), 0), `pos ${run.pos(1000)} → ${run.pos(5000)}`);
+  assert(run.timeOf(0) === 5000 && run.timeOf(1) === 6000, 'notes land on the beat after the count-in');
+});
+test('String lessons (in time): plucks on the beat are perfect at every speed', () => {
+  for (const { bpm } of Object.values(STRING_TEMPOS)) {
+    for (const id of ['buns', 'mary', 'sheep', 'twinkle', 'ode']) {
+      const s = song(id), run = new StringTimedRun(s, { bpm });
+      run.start(0);
+      s.notes.forEach((n, i) => run.pluck(n.midi, run.timeOf(i) + 40));
+      const r = run.result();
+      assert(run.done && r.perfect === s.notes.length && r.stars === 3, `${id} @${bpm}: ${r.perfect}/${s.notes.length}`);
+      assert(r.maxCombo === s.notes.length, `${id} combo ${r.maxCombo}`);
+    }
+  }
+});
+test('String lessons (in time): late is good, too late is a miss, and repeats match the nearest note', () => {
+  const s = song('buns'), run = new StringTimedRun(s, { bpm: 60 });
+  run.start(0);
+  assert(run.pluck(64, run.timeOf(0) + (PERFECT_SEC + 0.08) * 1000) === 'good', 'a bit late is good');
+  run.update(run.timeOf(1) + (WINDOW_SEC + 0.05) * 1000);
+  assert(run.grade[1] === 'miss' && run.combo === 0, 'D never played is a miss and breaks the combo');
+  // "one a penny": eight half-beat C/D notes. A pluck near note 7 (the 2nd C) must not take note 6.
+  const c2 = 7;
+  assert(s.notes[6].midi === 60 && s.notes[c2].midi === 60, 'notes 6 and 7 are both C');
+  run.pluck(60, run.timeOf(6));
+  assert(run.pluck(60, run.timeOf(c2) - 30) === 'perfect' && run.grade[c2] === 'perfect', 'second C matched');
+});
+test('String lessons (in time): strumming everything nonstop does not earn stars', () => {
+  const s = song('twinkle'), run = new StringTimedRun(s, { bpm: 50 });
+  run.start(0);
+  const end = run.timeOf(s.notes.length - 1) + 1000;
+  for (let t = 0; t < end; t += 250) for (const m of [60, 62, 64, 65, 67, 69]) run.pluck(m, t + m - 60);
+  run.update(end + 2000);
+  const r = run.result();
+  assert(run.done && r.stars <= 1, `spam strum got ${r.stars} stars (${r.hits} hits, ${r.wrong} wrong)`);
+});
+test('String lessons (in time): a wrong string mid-song breaks the combo; a neighbour brushed right after does not', () => {
+  const s = song('mary'), run = new StringTimedRun(s, { bpm: 60 });
+  run.start(0);
+  run.pluck(64, run.timeOf(0));
+  assert(run.pluck(65, run.timeOf(0) + 60) === 'ignored' && run.combo === 1, 'brushed neighbour forgiven');
+  run.pluck(62, run.timeOf(1));
+  assert(run.pluck(69, run.timeOf(1) + 500) === 'wrong' && run.combo === 0 && run.wrong === 1, 'stray A breaks the combo');
+});
+test('String lessons (in time): the now-line crosses every string and leaves room to see notes coming', () => {
+  for (const [W, H, top, bottom] of [[1440, 900, 112, 124], [1280, 760, 108, 124], [844, 390, 115, 124], [390, 844, 141, 176]]) {
+    const slots = harpSlots(W, H, { top, bottom });
+    const g = timedGeometry(slots, W, H, { farTop: top - 48 });
+    const along = g.wide ? g.now - slots[0].ay : g.now - slots[0].ax;
+    assert(slots.every((s) => along > 20 && along < s.len - 10), `${W}x${H}: line ${along.toFixed(0)}px along`);
+    assert(g.look >= 2 && g.ppb >= 30, `${W}x${H}: ${g.look.toFixed(1)} beats ahead at ${g.ppb.toFixed(0)} px/beat`);
+  }
 });
 test('String lessons: with drawing off, a pinch in empty space draws nothing but strings still play', () => {
   const bank = new StringBank(), plucks = [];

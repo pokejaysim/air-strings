@@ -11,7 +11,11 @@ import { midiToFreq, noteName } from './pitch.js';
 import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame } from './lessons.js';
 import { drawRibbon } from './lesson-view.js';
 
-const $ = (id) => document.getElementById(id);
+// Right after an update a browser can pair a cached older page with newer
+// scripts, so a missing element gets a stand-in instead of stopping the app.
+const stubs = new Map();
+const $ = (id) => document.getElementById(id)
+  || stubs.get(id) || stubs.set(id, document.createElement('div')).get(id);
 const params = new URLSearchParams(location.search);
 const video = $('video');
 const canvas = $('canvas');

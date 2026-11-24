@@ -10,6 +10,7 @@ import * as TH from './theremin-map.js';
 import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GATE_SEC, COUNT_IN_BEATS, noteAt, demoFrame, streakMilestone } from './lessons.js';
 import { ribbonGeometry } from './lesson-view.js';
 import { suggestedSong } from './song-picker.js';
+import { parseHands } from './tracking.js';
 import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun, StringTimedRun, timedGeometry, STRING_TEMPOS, PERFECT_SEC, WINDOW_SEC } from './string-lessons.js';
 
 const results = [];
@@ -877,6 +878,26 @@ test('String lessons: a finished draw is handed to the lesson, not added freely'
   ix.update([ptr(200, 400, false, { pinchEnded: true })], 1180, 720, (t += 16));
   assert(bank.strings.length === 0, 'string was added without asking the lesson');
   assert(got.length === 1 && got[0].line.ay === 200 && got[0].line.by === 400 && got[0].source === 'mouse', 'lesson got the line');
+});
+
+// ---- tracker results ----
+test('Tracker: Gesture Recognizer results carry the hand shape', () => {
+  const pts = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
+  const hands = parseHands({
+    landmarks: [pts, pts],
+    handedness: [[{ categoryName: 'Left', score: 0.9 }], [{ categoryName: 'Right', score: 0.8 }]],
+    gestures: [[{ categoryName: 'Closed_Fist', score: 0.77 }], [{ categoryName: 'None', score: 0.6 }]],
+  });
+  assert(hands.length === 2 && hands[0].landmarks === pts, 'two hands with landmarks');
+  assert(hands[0].handedness === 'Left' && hands[1].handedness === 'Right', 'handedness');
+  assert(hands[0].gesture.name === 'Closed_Fist' && near(hands[0].gesture.score, 0.77), 'fist kept');
+  assert(hands[1].gesture === null, '"None" means no gesture');
+});
+test('Tracker: plain Hand Landmarker results still work (no gestures)', () => {
+  const pts = Array.from({ length: 21 }, () => ({ x: 0.1, y: 0.2, z: 0 }));
+  const hands = parseHands({ landmarks: [pts], handednesses: [[{ categoryName: 'Right', score: 0.95 }]] });
+  assert(hands.length === 1 && hands[0].handedness === 'Right' && hands[0].gesture === null, JSON.stringify(hands[0].gesture));
+  assert(parseHands({ landmarks: [] }).length === 0 && parseHands(null).length === 0, 'empty results');
 });
 
 // ---- render ----

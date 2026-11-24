@@ -80,3 +80,27 @@ export class FX {
     ctx.restore();
   }
 }
+
+/**
+ * The streak counter: a big number that pops when it grows and turns gold
+ * from 10 up. `sinceUp` is ms since it last went up.
+ */
+export function drawStreak(ctx, x, y, combo, sinceUp) {
+  const pop = 1 + 0.35 * Math.max(0, 1 - sinceUp / 260);
+  const gold = combo >= 10;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '800 10px ui-rounded, system-ui, sans-serif';
+  ctx.fillStyle = gold ? 'rgba(255,215,106,0.85)' : 'rgba(238,241,248,0.6)';
+  ctx.fillText('STREAK', 0, -22);
+  ctx.scale(pop, pop);
+  ctx.font = '800 32px ui-rounded, system-ui, sans-serif';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(8,10,18,0.75)';
+  ctx.strokeText(String(combo), 0, 2);
+  ctx.fillStyle = gold ? '#ffd76a' : '#ffffff';
+  ctx.fillText(String(combo), 0, 2);
+  ctx.restore();
+}

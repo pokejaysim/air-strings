@@ -8,9 +8,9 @@ import {
   THEREMIN_SCALES, RANGES, VOLUME_FLOOR,
 } from './theremin-map.js';
 import { midiToFreq, noteName } from './pitch.js';
-import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame } from './lessons.js';
+import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame, streakMilestone } from './lessons.js';
 import { drawRibbon, ribbonGeometry } from './lesson-view.js';
-import { FX } from './fx.js';
+import { FX, drawStreak } from './fx.js';
 import { createSongPicker } from './song-picker.js';
 
 // Right after an update a browser can pair a cached older page with newer
@@ -62,6 +62,7 @@ const lesson = {
 };
 const fx = new FX();
 let fxT = 0;
+const streak = { last: 0, upT: 0 }; // the streak counter's pop and milestones
 if (!TEMPOS[lesson.tempo]) lesson.tempo = 'slow';
 
 const app = {
@@ -141,6 +142,7 @@ function loadLesson() {
   lesson.range = lessonRange(lesson.song);
   lesson.run = new Lesson(lesson.song, { mode: lesson.mode, bpm: TEMPOS[lesson.tempo].bpm });
   lesson.view = lesson.run.view();
+  streak.last = 0;
   lesson.lastT = performance.now();
   lesson.cardShown = false;
   $('lessonCard').hidden = true;
@@ -202,7 +204,7 @@ function finishLesson() {
   if (res.stars === 3) fx.confetti(app.W, app.H);
   refreshLessonLabels();
   const title = res.hits === res.total ? 'Perfect!' : ['Keep at it', 'Good start', 'Nicely played', 'Excellent!'][res.stars];
-  const msg = `You hit ${res.hits} of ${res.total} notes at ${TEMPOS[lesson.tempo].label.toLowerCase()} speed.`;
+  const msg = `You hit ${res.hits} of ${res.total} notes at ${TEMPOS[lesson.tempo].label.toLowerCase()} speed. Best streak ${res.maxCombo}.`;
   const again = ['Play again', () => setLessonMode('play')];
   if (res.stars >= 2) card(res.stars, title, msg, ['Next song', () => setLessonSong(lesson.songIdx + 1)], again);
   else card(res.stars, title, msg, ['Try again', () => setLessonMode('play')], ['Back to step 1', () => setLessonMode('learn')]);
@@ -436,6 +438,13 @@ function frame(now) {
     gate = lesson.view.gate;
     // Sparks for every note you just got, where it crossed the now-line.
     for (let i = before; i < lesson.view.index; i++) if (lesson.view.hit[i]) sparkleNote(lesson.song.notes[i].midi);
+    const c = lesson.view.combo || 0;
+    if (c > streak.last) {
+      streak.upT = now;
+      const m = lesson.mode === 'play' && streakMilestone(streak.last, c);
+      if (m) { const [x, y] = streakPos(); fx.burst(x, y, 45, 1); toast(`${m} in a row!`, 1600); }
+    }
+    streak.last = c;
     if (lesson.view.done && !lesson.cardShown) finishLesson();
   }
   const handGlide = app.cameraOn && !app.mouseMode ? (app.detectInterval / 1000) * 0.6 : 0;
@@ -525,6 +534,11 @@ function lessonCoach() {
   return { step: v.index + 1, text: tip ? `${words} · ${tip}` : words, quiet: true };
 }
 
+/** Where the streak counter sits: the top of the volume side, clear of the ribbon. */
+function streakPos() {
+  const v = app.layout.volume;
+  return [v.x + v.w / 2, v.y + 64];
+}
 function sparkleNote(midi) {
   const L = app.layout, range = lesson.range;
   if (!L || !range) return;
@@ -552,6 +566,11 @@ function render() {
   drawTrail();
   drawHands(L, r);
   const now = performance.now();
+  const v = lesson.view;
+  if (lesson.active && !lesson.demo && v && v.mode === 'play' && v.started && !v.countIn && v.combo >= 2) {
+    const [sx, sy] = streakPos();
+    drawStreak(ctx, sx, sy, v.combo, now - streak.upT);
+  }
   fx.update((now - (fxT || now)) / 1000);
   fxT = now;
   fx.draw(ctx);

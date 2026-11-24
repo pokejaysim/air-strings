@@ -69,6 +69,9 @@ easiest first; every one fits on six strings, C to A).
 In lessons every note name has its own colour (C red, D orange, E yellow,
 F green, G blue, A violet), on the strings, the next-notes strip and the notes
 that travel in step 3. Right notes throw sparks; three stars bring confetti.
+While playing in time (either instrument) a **streak** counter tracks notes hit
+in a row: it turns gold at 10 and cheers at 10, 25, 50 and 100. Your best
+streak is shown on the result card.
 
 **Listen** (or <kbd>P</kbd>) plays the song for you first, at the chosen speed:
 each string lights and sounds in turn (in step 1, before the strings exist,

@@ -1,10 +1,10 @@
 // Air Strings lessons: wiring, coaching and drawing. The rules live in
 // string-lessons.js (pure, tested); this file connects them to the page.
 
-import { SONGS, buildSong } from './lessons.js';
+import { SONGS, buildSong, streakMilestone } from './lessons.js';
 import { harpSlots, matchSlot, drawFeedback, whiteNoteForLength, StringSongRun, StringTimedRun, STRING_TEMPOS, timedGeometry } from './string-lessons.js';
 import { lengthFraction, midiToFreq, noteName, noteHue } from './pitch.js';
-import { FX } from './fx.js';
+import { FX, drawStreak } from './fx.js';
 import { roundRect } from './strings.js';
 import { createSongPicker } from './song-picker.js';
 
@@ -28,6 +28,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     lastBeat: null,         // for the count-in ticks
     demo: null,             // 'Listen': a run the app plays by itself
     fxT: 0,
+    streak: { last: 0, upT: 0 }, // for the streak counter's pop and milestones
     song: null,
     run: null,
     harp: new Map(),        // midi -> AirString; kept between songs, so each song adds to it
@@ -107,6 +108,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     L.run = step === 'play' ? new StringSongRun(L.song)
       : step === 'time' ? new StringTimedRun(L.song, { bpm: STRING_TEMPOS[L.tempo].bpm }) : null;
     L.lastBeat = null;
+    L.streak = { last: 0, upT: 0 };
     computeSlots();
     placeHarp();
     L.cardShown = false;
@@ -233,6 +235,25 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     const g = timedGeometry(L.slots, app.W, app.H, { farTop: $('toolbar').getBoundingClientRect().bottom + 10 });
     return g.wide ? [sl.ax, g.now] : [g.now, sl.ay];
   }
+  /** Where the streak counter sits: top left, clear of the strings and the notes coming in. */
+  function streakPos() {
+    const tb = $('toolbar').getBoundingClientRect();
+    return [Math.max(44, Math.min(70, app.W * 0.07)), tb.bottom + 44];
+  }
+  /** Notice the streak growing (pop), hitting a milestone (cheer) or breaking. */
+  function trackStreak(run, now) {
+    const st = L.streak, c = run.combo;
+    if (c > st.last) {
+      st.upT = now;
+      const m = streakMilestone(st.last, c);
+      if (m) {
+        const [x, y] = streakPos();
+        fx.burst(x, y, 45, 1);
+        ui.toast(`${m} in a row!`, 1600);
+      }
+    }
+    st.last = c;
+  }
   function sparkle(midi, power) {
     const p = hitPoint(midi);
     if (p) fx.burst(p[0], p[1], noteHue(midi), power);
@@ -330,6 +351,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     if (L.step === 'time') {
       const g = L.run.pluck(midi, now);
       if (g === 'perfect' || g === 'good') sparkle(midi, g === 'perfect' ? 1 : 0.55);
+      trackStreak(L.run, now);
       if (L.run.done) finish();
       return;
     }
@@ -368,6 +390,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       if (beat < 0) interaction.synth.pluck({ freq: beat === -run.countIn ? 1760 : 1318.5, amp: 0.22, position: 0.1, pan: 0, stringId: 'tick' });
     }
     run.update(now);
+    trackStreak(run, now);
     // Light each string a moment before its note arrives.
     const pos = run.pos(now);
     for (let i = run.index; i < L.song.notes.length; i++) {
@@ -594,6 +617,11 @@ export function createStringLessons({ app, bank, interaction, ui }) {
       const lift = 22 + 26 * age;
       ctx.fillText(label, g.wide ? x : x, g.wide ? y + lift : y - lift);
       ctx.globalAlpha = 1;
+    }
+    // Streak.
+    if (run !== L.demo && run.started && pos >= 0 && run.combo >= 2) {
+      const [sx, sy] = streakPos();
+      drawStreak(ctx, sx, sy, run.combo, now - L.streak.upT);
     }
     // Count-in.
     if (run.started && pos < 0 && !run.done) {

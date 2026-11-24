@@ -206,6 +206,8 @@ export class Lesson {
     this.direction = 0;      // +1: target is higher than the player, -1: lower
     this.on = this.song.notes.map(() => 0);     // seconds spent on each note
     this.hit = this.song.notes.map(() => null); // true / false once a note has passed
+    this.combo = 0;          // notes hit in a row (timed play)
+    this.maxCombo = 0;
   }
 
   get target() { return this.done ? null : this.song.notes[this.index]; }
@@ -254,6 +256,8 @@ export class Lesson {
       while (note && this.pos >= note.start + note.beats) {
         const judged = Math.max(0.05, note.beats / bps - this.grace(note));
         this.hit[this.index] = this.on[this.index] / judged >= HIT_FRACTION;
+        this.combo = this.hit[this.index] ? this.combo + 1 : 0;
+        this.maxCombo = Math.max(this.maxCombo, this.combo);
         this.index++;
         if (this.index >= this.song.notes.length) { this.done = true; note = null; }
         else note = this.song.notes[this.index];
@@ -269,7 +273,7 @@ export class Lesson {
       onPitch: this.onPitch && !this.done, direction: this.done ? 0 : this.direction,
       gate: this.gateLeft > 0 ? 0 : 1, started: this.started, done: this.done,
       countIn: this.mode === 'play' && this.started && this.pos < 0 ? Math.ceil(-this.pos) : 0,
-      hit: this.hit,
+      hit: this.hit, combo: this.combo,
     };
   }
 
@@ -277,7 +281,7 @@ export class Lesson {
     const total = this.song.notes.length;
     const hits = this.hit.filter((h) => h === true).length;
     const ratio = total ? hits / total : 0;
-    return { hits, total, ratio, stars: this.mode === 'learn' ? (this.done ? 3 : 0) : starsFor(ratio) };
+    return { hits, total, ratio, maxCombo: this.maxCombo, stars: this.mode === 'learn' ? (this.done ? 3 : 0) : starsFor(ratio) };
   }
 }
 
@@ -312,4 +316,13 @@ export function demoFrame(song, pos, bpm) {
     midi: n ? n.midi : null,
     done: pos >= song.totalBeats + 0.3,
   };
+}
+
+/** Streak lengths worth celebrating. */
+export const STREAK_MILESTONES = [10, 25, 50, 100];
+/** The milestone a streak just reached going from `prev` to `cur`, or 0. */
+export function streakMilestone(prev, cur) {
+  let hit = 0;
+  for (const m of STREAK_MILESTONES) if (prev < m && cur >= m) hit = m;
+  return hit;
 }

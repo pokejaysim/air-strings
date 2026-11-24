@@ -7,7 +7,7 @@ import { StringBank } from './strings.js';
 import { Interaction, TUNING } from './interaction.js';
 import { HandGestures, videoToScreen, PINCH_ON, PINCH_OFF } from './gestures.js';
 import * as TH from './theremin-map.js';
-import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GATE_SEC, COUNT_IN_BEATS, noteAt, demoFrame } from './lessons.js';
+import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, noteToMidi, starsFor, GATE_SEC, COUNT_IN_BEATS, noteAt, demoFrame, streakMilestone } from './lessons.js';
 import { ribbonGeometry } from './lesson-view.js';
 import { suggestedSong } from './song-picker.js';
 import { HARP_NOTES, lengthForMidi, whiteNoteForLength, harpSlots, matchSlot, drawFeedback, StringSongRun, StringTimedRun, timedGeometry, STRING_TEMPOS, PERFECT_SEC, WINDOW_SEC } from './string-lessons.js';
@@ -753,6 +753,23 @@ test('Song picker suggests the first song without a star, else stays put', () =>
   assert(suggestedSong(sc(0, 0, 0), 2) === 0, 'nothing played: song 1');
   assert(suggestedSong(sc(3, 1, 0, 0), 0) === 2, 'first starless song');
   assert(suggestedSong(sc(3, 2, 1), 1) === 1, 'all starred: the current song');
+});
+test('Streaks: the theremin counts notes hit in a row, and milestones fire once', () => {
+  const s = song('mary'), run = new Lesson(s, { mode: 'play', bpm: 80 });
+  const dt = 1 / 60;
+  let t = -COUNT_IN_BEATS, maxSeen = 0;
+  for (let k = 0; k < 4000 && !run.done; k++) {
+    t = run.pos;
+    const i = Math.max(0, s.notes.findIndex((n) => t >= n.start && t < n.start + n.beats));
+    const miss = i === 10; // drop one note in the middle
+    const v = run.step({ pitchPresent: true, sounding: true, midi: miss ? s.notes[i].midi + 3 : s.notes[i].midi }, dt);
+    maxSeen = Math.max(maxSeen, v.combo);
+  }
+  const r = run.result();
+  assert(run.done && r.hits === s.notes.length - 1, `${r.hits}/${s.notes.length}`);
+  assert(r.maxCombo === s.notes.length - 11 && maxSeen === r.maxCombo, `best streak ${r.maxCombo}, saw ${maxSeen}`);
+  assert(streakMilestone(9, 10) === 10 && streakMilestone(10, 11) === 0 && streakMilestone(3, 4) === 0, 'milestone at 10 only once');
+  assert(streakMilestone(24, 26) === 25 && streakMilestone(0, 60) === 50, 'jumps past a milestone still count');
 });
 test('Listen first: the demo walks through every note in order, on the beat, and then ends', () => {
   for (const id of SONGS.map((d) => d.id)) {

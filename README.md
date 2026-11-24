@@ -30,7 +30,7 @@ them instead of drawing. The thresholds live in `TUNING` in
 `js/interaction.js`. A short coaching line at
 the bottom walks first-time players through draw, pluck, then strum.
 
-Keyboard: **Z** undo · **C** clear · **L** learn a song · **H** help.
+Keyboard: **Z** undo · **C** clear · **L** learn a song · **F** face · **H** help.
 
 **Pitch:** frequency is inversely proportional to length, measured as a
 fraction of the screen diagonal, so it works the same at any window size.
@@ -84,6 +84,46 @@ draws the remaining strings for you; pressing it while playing clears the
 harp to build again. Your own free-play strings are put away during a lesson
 and come back when you exit.
 
+## Hand signs (both instruments)
+
+Hold a hand shape for a moment and a ring fills above your hand; when it is
+full, the action happens. A sign only counts once it has been held, so a hand
+passing through a fist while playing does nothing, and a sign only shows its
+ring when it would do something.
+
+| Sign | Hold | Air Strings | Air Theremin |
+|---|---|---|---|
+| ✊ Fist | 0.3 s | Mutes every ringing string | Silences it while you hold the fist |
+| 👍 Thumbs up | 0.8 s | In a lesson: presses the big button on the result card, or picks the *Next up* song in the song list | Same |
+| 👎 Thumbs down | 0.8 s | Removes the last string (in a lesson, starts the song again) | Starts a lesson song again |
+| ✌️ Victory | 1 s | Switches to the theremin | Switches to Air Strings |
+| 🤟 I love you | 0.8 s | Confetti | Confetti |
+
+Open palm and pointing up are left out on purpose: they are how you hold your
+hand to play. A fist never starts a pinch: it only counts as a fist when the
+model says so *and* the index fingertip is curled into its knuckle, so a pinch
+with the other fingers curled still draws. **Hand signs** can be turned off
+in the help panel.
+
+## Face control (both instruments)
+
+Press the 🙂 button (or <kbd>F</kbd>; on phones and narrower screens it's in
+the help panel). The app spends a second learning your resting face, then
+measures from it, so a mouth that rests slightly open is still "closed".
+
+- **Air Theremin:** open your mouth for a brighter, resonant "wah" (the filter
+  follows the note, from just above it with your mouth closed to past its
+  eighth harmonic wide open); round your lips into an "oo" for a darker,
+  hollow sound; raise your eyebrows to jump up an octave (free play only);
+  tilt your head toward a shoulder for vibrato.
+- **Air Strings:** open your mouth to let notes ring up to 2.5 times longer;
+  raise your eyebrows to play an octave up (free play only).
+
+A small face badge mirrors your expression and lights "8VA" when the octave
+is on. The face model runs on every other camera frame, and Face turns itself
+off if hand tracking drops below 15 frames a second (and well below where it
+was), so hands always come first.
+
 ## Air Theremin
 
 **Live:** https://pokejaysim.github.io/air-strings/theremin.html
@@ -101,7 +141,7 @@ A second instrument in the same app, played without touching anything:
   scale but keeps slides and vibrato. *Snap* always lands on a note.
 - **Voice:** Classic, Soft or Sci-fi. **Scale:** Pentatonic, Major, Minor
   pentatonic or Chromatic (all in C). **Range:** Low C2–C4, Mid C3–C5, High C4–C6.
-- Keyboard: **A** assist · **V** voice · **S** scale · **R** range · **L** learn a song · **H** help.
+- Keyboard: **A** assist · **V** voice · **S** scale · **R** range · **L** learn a song · **F** face · **H** help.
 - On a phone, prop it up and step back so both hands fit. Landscape gives the
   most room.
 
@@ -161,13 +201,17 @@ length raises an octave, clamping, scale snapping, note names), pinch
 hysteresis, video mirroring, simulated hand gestures (drawing, plucking,
 strumming, cooldowns), the theremin's mapping, assist, roles and
 volume memory, and the song lessons on both instruments (waiting, timing,
-scoring, the harp layout and slot matching). The theremin also has mouse mode: `theremin.html?mouse=1`.
+scoring, the harp layout and slot matching), hand signs (holds, flicker,
+cooldown, fist vs pinch) and face control (calibration, eyebrow hysteresis,
+tilt, the wah filter, auto-off). The theremin also has mouse mode: `theremin.html?mouse=1`.
 
 ## How it works
 
 | File | Role |
 |---|---|
-| `js/tracking.js` | MediaPipe Tasks Vision Hand Landmarker (pinned `@mediapipe/tasks-vision@1.2.2`, GPU with CPU fallback), webcam setup and friendly errors |
+| `js/tracking.js` | MediaPipe Tasks Vision Gesture Recognizer (pinned `@mediapipe/tasks-vision@1.2.2`): 21 hand points plus a hand-shape label, GPU with CPU fallback, and the plain Hand Landmarker if it can't load; webcam setup and friendly errors |
+| `js/hand-signs.js` | Hand signs (pure, tested): hold-to-confirm, flicker tolerance, cooldown, the filling rings |
+| `js/face.js` | Face control: MediaPipe Face Landmarker (blendshapes + head pose), calibration to your resting face, smoothing, the shared on/off session and the face badge |
 | `js/one-euro.js` | One Euro filter to smooth fingertip jitter without adding lag |
 | `js/gestures.js` | Turns landmarks (or the mouse) into "pointers": pinch point, fingertip, pinch state with hysteresis |
 | `js/interaction.js` | Draw / pinch-pull-release / strum rules |

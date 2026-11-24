@@ -395,7 +395,7 @@ export function createStringLessons({ app, bank, interaction, ui }) {
     const beat = Math.floor(run.pos(now));
     if (beat !== L.lastBeat) {
       L.lastBeat = beat;
-      if (beat < 0) interaction.synth.pluck({ freq: beat === -run.countIn ? 1760 : 1318.5, amp: 0.22, position: 0.1, pan: 0, stringId: 'tick' });
+      if (beat < 0) interaction.synth.tick(beat === -run.countIn);
     }
     run.update(now);
     trackStreak(run, now);

@@ -21,6 +21,22 @@ export class AudioCore {
 
   get running() { return !!this.ctx && this.ctx.state === 'running'; }
 
+  /** A short metronome click (count-ins). `accent` marks the first beat. */
+  tick(accent = false) {
+    if (!this.running || !this.master) return false;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = accent ? 1760 : 1318.5;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.3, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + 0.12);
+    return true;
+  }
+
   /**
    * Try to (re)start audio. Only works reliably inside a real user gesture
    * (tap, click, key) on iOS; elsewhere it's a harmless no-op.

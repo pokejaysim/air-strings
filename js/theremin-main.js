@@ -8,7 +8,7 @@ import {
   THEREMIN_SCALES, RANGES, VOLUME_FLOOR,
 } from './theremin-map.js';
 import { midiToFreq, noteName } from './pitch.js';
-import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame, streakMilestone } from './lessons.js';
+import { SONGS, TEMPOS, buildSong, lessonRange, Lesson, demoFrame, streakMilestone, COUNT_IN_BEATS } from './lessons.js';
 import { drawRibbon, ribbonGeometry } from './lesson-view.js';
 import { FX, drawStreak } from './fx.js';
 import { createSongPicker } from './song-picker.js';
@@ -63,6 +63,7 @@ const lesson = {
 const fx = new FX();
 let fxT = 0;
 const streak = { last: 0, upT: 0 }; // the streak counter's pop and milestones
+let lastCountIn = 0; // count-in clicks
 if (!TEMPOS[lesson.tempo]) lesson.tempo = 'slow';
 
 const app = {
@@ -469,6 +470,11 @@ function frame(now) {
   while (drop < app.trail.length && (now - app.trail[drop].t > 900)) drop++;
   if (drop) app.trail.splice(0, drop);
   if (app.trail.length > 60) app.trail.splice(0, app.trail.length - 60);
+
+  // Click each beat of the count-in (the first one higher), so you hear the tempo.
+  const ci = lesson.active && lesson.view ? lesson.view.countIn || 0 : 0;
+  if (ci && ci !== lastCountIn) synth.tick(ci === (lesson.demo ? 1 : COUNT_IN_BEATS));
+  lastCountIn = ci;
 
   setSoundPaused(app.started && synth.needsUnlock);
   setCoach(lesson.active ? lessonCoach() : coach());
